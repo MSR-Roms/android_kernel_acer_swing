@@ -367,6 +367,13 @@ config ARCH_MSM9625
 	select MSM_GPIOMUX
 	select MULTI_IRQ_HANDLER
 	select GPIO_MSM_V3
+
+config ARCH_ACER_MSM8960
+	depends on ARCH_MSM8960
+	bool "ACER 8960 Platform"
+	help
+	Support for the ACER MSM8960 Platform.
+
 endmenu
 
 choice
@@ -491,6 +498,21 @@ config MSM_REMOTE_SPINLOCK_SFPB
 	bool
 config MSM_ADM3
 	bool
+
+menu "Acer Board Selection"
+config MACH_ACER_A9
+	depends on ARCH_ACER_MSM8960
+	bool "ACER A9"
+	help
+		Support for the ACER A9.
+
+config MACH_ACER_A11RD
+	depends on ARCH_ACER_MSM8960
+	bool "ACER A11RD"
+	select MACH_ACER_A9
+	help
+		Support for the ACER A11RD.
+endmenu
 
 menu "MSM Board Selection"
 

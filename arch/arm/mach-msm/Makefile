@@ -264,12 +264,23 @@ obj-$(CONFIG_ARCH_MSM7X30) += board-msm7x30.o devices-msm7x30.o memory_topology.
 obj-$(CONFIG_ARCH_MSM7X30) += clock-local.o clock-7x30.o acpuclock-7x30.o clock-pll.o
 obj-$(CONFIG_MACH_MSM7X25_SURF) += board-msm7x27.o devices-msm7x25.o
 obj-$(CONFIG_MACH_MSM7X25_FFA) += board-msm7x27.o devices-msm7x25.o
+ifdef CONFIG_ARCH_ACER_MSM8960
+obj-$(CONFIG_ARCH_MSM8960) += clock-local.o clock-dss-8960.o clock-acer-8960.o clock-rpm.o clock-pll.o
+else
 obj-$(CONFIG_ARCH_MSM8960) += clock-local.o clock-dss-8960.o clock-8960.o clock-rpm.o clock-pll.o
+endif
 obj-$(CONFIG_ARCH_MSM8960) += footswitch-8x60.o
 obj-$(CONFIG_ARCH_MSM8960) += acpuclock-8960.o acpuclock-8960ab.o
 obj-$(CONFIG_ARCH_MSM8960) += memory_topology.o
 obj-$(CONFIG_ARCH_MSM8960) += saw-regulator.o
+ifdef CONFIG_ARCH_ACER_MSM8960
+obj-$(CONFIG_ARCH_MSM8960) += devices-acer-8960.o
+else
 obj-$(CONFIG_ARCH_MSM8960) += devices-8960.o
+endif
+obj-$(CONFIG_TOUCHSCREEN_CYPRESS) += board-acer-8960-a9-touch.o
+obj-$(CONFIG_TOUCHSCREEN_CYPRESS_CYTTSP4) += board-acer-8960-a11-touch.o
+
 obj-$(CONFIG_ARCH_APQ8064) += devices-8960.o devices-8064.o
 obj-$(CONFIG_ARCH_APQ8064) += acpuclock-8064.o
 board-8960-all-objs += board-8960.o board-8960-camera.o board-8960-display.o board-8960-pmic.o board-8960-storage.o board-8960-gpiomux.o
@@ -280,7 +291,16 @@ obj-$(CONFIG_MACH_MSM8960_MTP) += board-8960-all.o board-8960-regulator.o
 obj-$(CONFIG_MACH_MSM8960_FLUID) += board-8960-all.o board-8960-regulator.o
 obj-$(CONFIG_MACH_MSM8930_CDP) += board-8930-all.o board-8930-regulator-pm8038.o board-8930-regulator-pm8917.o
 obj-$(CONFIG_MACH_MSM8930_MTP) += board-8930-all.o board-8930-regulator-pm8038.o board-8930-regulator-pm8917.o
-obj-$(CONFIG_MACH_MSM8930_FLUID) += board-8930-all.o board-8930-regulator-pm8038.o board-8930-regulator-pm8917.o
+obj-$(CONFIG_MACH_MSM8930_FLUID) += board-8930-all.o board-8930-regulator.o
+ifdef CONFIG_ARCH_ACER_MSM8960
+ifdef CONFIG_MACH_ACER_A11RD
+obj-$(CONFIG_MACH_ACER_A11RD) += bms-acer-batterydata-a11.o
+else
+obj-$(CONFIG_MACH_ACER_A9) += bms-acer-batterydata.o
+endif
+else
+obj-$(CONFIG_PM8921_BMS) += bms-batterydata.o bms-batterydata-desay.o
+endif
 obj-$(CONFIG_MACH_MSM8930_EVT) += board-8930-all.o board-8930-regulator-pm8038.o board-8930-regulator-pm8917.o
 obj-$(CONFIG_PM8921_BMS) += bms-batterydata.o bms-batterydata-desay.o batterydata-lib.o
 obj-$(CONFIG_MACH_APQ8064_CDP) += board-8064-all.o board-8064-regulator.o
@@ -298,6 +318,9 @@ obj-$(CONFIG_ARCH_MSM8974) += krait-regulator.o
 obj-$(CONFIG_ARCH_MSM9625) += board-9625.o board-9625-gpiomux.o
 obj-$(CONFIG_ARCH_MSM8930) += acpuclock-8930.o acpuclock-8627.o acpuclock-8930aa.o acpuclock-8930ab.o
 obj-$(CONFIG_ARCH_MPQ8092) += board-8092.o board-8092-gpiomux.o
+
+obj-$(CONFIG_ARCH_ACER_MSM8960) += board-acer-8960.o board-acer-8960-camera.o board-acer-8960-display.o board-acer-8960-pmic.o board-acer-8960-storage.o board-acer-8960-gpiomux.o board-acer-8960-regulator.o board-acer-8960-keypad.o
+
 obj-$(CONFIG_MACH_SAPPHIRE) += board-sapphire.o board-sapphire-gpio.o
 obj-$(CONFIG_MACH_SAPPHIRE) += board-sapphire-keypad.o board-sapphire-panel.o
 obj-$(CONFIG_MACH_SAPPHIRE) += board-sapphire-mmc.o board-sapphire-wifi.o
@@ -375,6 +398,9 @@ obj-$(CONFIG_ARCH_MSM7X27A) += board-msm7x27a-regulator.o
 endif
 
 obj-$(CONFIG_ARCH_MSM8960) += mdm2.o mdm_common.o
+ifndef CONFIG_MACH_ACER_A9
+obj-$(CONFIG_ARCH_MSM8960) += mdm2.o mdm_common.o
+endif
 obj-$(CONFIG_MSM_RTB) += msm_rtb.o
 obj-$(CONFIG_MSM_CACHE_ERP) += cache_erp.o
 obj-$(CONFIG_MSM_EBI_ERP) += ebi_erp.o

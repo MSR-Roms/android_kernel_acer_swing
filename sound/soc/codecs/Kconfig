@@ -163,6 +163,14 @@ config SND_SOC_AK4535
 config SND_SOC_AK4641
 	tristate
 
+config ACER_HEADSET
+	tristate "ACER Headset detection driver"
+	default n
+
+config ACER_HEADSET_BUTT
+	tristate "ACER Headset Button detection driver"
+	default n
+
 config SND_SOC_AK4642
 	tristate
 
