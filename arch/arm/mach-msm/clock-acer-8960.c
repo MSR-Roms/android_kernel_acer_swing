@@ -390,7 +390,7 @@ static int set_vdd_dig_8960(struct clk_vdd_class *vdd_class, int level)
 				    vdd_uv[level], 1150000, 1);
 }
 
-static DEFINE_VDD_CLASS(vdd_dig, set_vdd_dig_8960);
+static DEFINE_VDD_CLASS(vdd_dig, set_vdd_dig_8960, VDD_DIG_NUM);
 
 static int set_vdd_dig_8930(struct clk_vdd_class *vdd_class, int level)
 {
@@ -453,7 +453,8 @@ static int set_vdd_sr2_hdmi_pll_8960(struct clk_vdd_class *vdd_class, int level)
 	return rc;
 }
 
-static DEFINE_VDD_CLASS(vdd_sr2_hdmi_pll, set_vdd_sr2_hdmi_pll_8960);
+static DEFINE_VDD_CLASS(vdd_sr2_hdmi_pll, set_vdd_sr2_hdmi_pll_8960,
+                        VDD_SR2_HDMI_PLL_NUM);
 
 static int sr2_lreg_uv[] = {
 	[VDD_SR2_HDMI_PLL_OFF] = 0,
