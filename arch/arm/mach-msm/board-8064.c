@@ -882,10 +882,12 @@ static struct msm_bus_scale_pdata usb_bus_scale_pdata = {
 };
 
 static int phy_init_seq[] = {
-	0x38, 0x81, /* update DC voltage level */
+	0x68, 0x81, /* update DC voltage level */
 	0x24, 0x82, /* set pre-emphasis and rise/fall time */
 	-1
 };
+
+#define MSM_MPM_PIN_USB1_OTGSESSVLD	40
 
 static struct msm_otg_platform_data msm_otg_pdata = {
 	.mode			= USB_OTG,
@@ -895,6 +897,7 @@ static struct msm_otg_platform_data msm_otg_pdata = {
 	.power_budget		= 750,
 	.bus_scale_table	= &usb_bus_scale_pdata,
 	.phy_init_seq		= phy_init_seq,
+	.mpm_otgsessvld_int	= MSM_MPM_PIN_USB1_OTGSESSVLD,
 };
 
 static struct msm_usb_host_platform_data msm_ehci_host_pdata3 = {
@@ -2227,6 +2230,7 @@ static struct platform_device *common_devices[] __initdata = {
 	&apq_lpa_pcm,
 	&apq_compr_dsp,
 	&apq_multi_ch_pcm,
+	&apq_lowlatency_pcm,
 	&apq_pcm_hostless,
 	&apq_cpudai_afe_01_rx,
 	&apq_cpudai_afe_01_tx,

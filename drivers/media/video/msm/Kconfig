@@ -31,6 +31,18 @@ config MT9D112
 	default y
 	---help---
 	  MICRON 2M YUV Sensor
+config IMX175
+	bool "Sensor IMX175 (BAYER 8M)"
+	depends on MSM_CAMERA
+	default n
+	---help---
+	Sony 8MP Bayer Sensor
+config OV9740
+	bool "Sensor OV9740 (YUV HD)"
+	depends on MSM_CAMERA
+	default n
+	---help---
+	OmniVision HD YUV Sensor
 config IMX074
 	bool "Sensor IMX074 (BAYER 13.5M)"
 	depends on MSM_CAMERA
@@ -169,6 +181,26 @@ config DW9712_ACT
 
 config MSM_CAMERA_FLASH_SC628A
 	bool "Qualcomm MSM camera sc628a flash support"
+	depends on MSM_CAMERA
+	default n
+	---help---
+	  Enable support for LED flash for msm camera.
+	  It is a samtech charge pump flash driver and it
+	  supports spotlight and flash light modes with
+	  differrent current levels.
+
+config MSM_CAMERA_FLASH_ADP1650
+	bool "Qualcomm MSM camera adp1650 flash support"
+	depends on MSM_CAMERA
+	default n
+	---help---
+	  Enable support for LED flash for msm camera.
+	  It is a samtech charge pump flash driver and it
+	  supports spotlight and flash light modes with
+	  differrent current levels.
+
+config MSM_CAMERA_FLASH_ADP1660
+	bool "Qualcomm MSM camera adp1660 flash support"
 	depends on MSM_CAMERA
 	default n
 	---help---

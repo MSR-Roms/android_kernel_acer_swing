@@ -15,7 +15,6 @@
 #define pr_fmt(fmt) "%s: " fmt, __func__
 
 #include <linux/module.h>
-#include <linux/moduleparam.h>
 #include <linux/kernel.h>
 #include <linux/io.h>
 #include <linux/irq.h>
@@ -30,7 +29,6 @@
 #include <linux/iopoll.h>
 #include <linux/delay.h>
 #include <linux/regulator/consumer.h>
-#include <linux/syscore_ops.h>
 
 #include <mach/irqs.h>
 
@@ -48,10 +46,6 @@
 
 /* Need platform device handle for suspend and resume APIs */
 static struct platform_device *cpr_pdev;
-
-static bool enable = 1;
-module_param(enable, bool, 0644);
-MODULE_PARM_DESC(enable, "CPR Enable");
 
 struct msm_cpr {
 	int curr_osc;
@@ -653,7 +647,7 @@ cpr_freq_transition(struct notifier_block *nb, unsigned long val,
 	default:
 		break;
 	}
-	return NOTIFY_OK;
+	return 0;
 }
 
 #ifdef CONFIG_PM
@@ -687,11 +681,6 @@ static int msm_cpr_resume(struct device *dev)
 	return 0;
 }
 
-static void msm_cpr_resume_syscore(void)
-{
-	msm_cpr_resume(&cpr_pdev->dev);
-}
-
 static int msm_cpr_suspend(struct device *dev)
 
 {
@@ -722,63 +711,32 @@ static int msm_cpr_suspend(struct device *dev)
 	return 0;
 }
 
-static int msm_cpr_suspend_syscore(void)
-{
-	return msm_cpr_suspend(&cpr_pdev->dev);
-}
-
 void msm_cpr_pm_resume(void)
 {
-	if (!enable)
-		return;
-
 	msm_cpr_resume(&cpr_pdev->dev);
 }
 EXPORT_SYMBOL(msm_cpr_pm_resume);
 
 void msm_cpr_pm_suspend(void)
 {
-	if (!enable)
-		return;
-
 	msm_cpr_suspend(&cpr_pdev->dev);
 }
 EXPORT_SYMBOL(msm_cpr_pm_suspend);
-#else
-#define msm_cpr_suspned_core NULL
-#define msm_cpr_resume_core NULL
 #endif
 
 void msm_cpr_disable(void)
 {
-	struct msm_cpr *cpr;
-
-	if (!enable)
-		return;
-
-	cpr = platform_get_drvdata(cpr_pdev);
-
+	struct msm_cpr *cpr = platform_get_drvdata(cpr_pdev);
 	cpr_disable(cpr);
 }
 EXPORT_SYMBOL(msm_cpr_disable);
 
 void msm_cpr_enable(void)
 {
-	struct msm_cpr *cpr;
-
-	if (!enable)
-		return;
-
-	cpr = platform_get_drvdata(cpr_pdev);
-
+	struct msm_cpr *cpr = platform_get_drvdata(cpr_pdev);
 	cpr_enable(cpr);
 }
 EXPORT_SYMBOL(msm_cpr_enable);
-
-static struct syscore_ops msm_cpr_syscore_ops = {
-	.suspend = msm_cpr_suspend_syscore,
-	.resume = msm_cpr_resume_syscore,
-};
 
 static int __devinit msm_cpr_probe(struct platform_device *pdev)
 {
@@ -789,20 +747,14 @@ static int __devinit msm_cpr_probe(struct platform_device *pdev)
 	struct resource *mem;
 	struct msm_cpr_mode *chip_data;
 
-	if (!enable)
-		return -EPERM;
-
 	if (!pdata) {
 		pr_err("CPR: Platform data is not available\n");
-		enable = false;
 		return -EIO;
 	}
 
 	cpr = devm_kzalloc(&pdev->dev, sizeof(struct msm_cpr), GFP_KERNEL);
-	if (!cpr) {
-		enable = false;
+	if (!cpr)
 		return -ENOMEM;
-	}
 
 	/* Initialize platform_data */
 	cpr->config = pdata;
@@ -905,8 +857,6 @@ static int __devinit msm_cpr_probe(struct platform_device *pdev)
 	cpufreq_register_notifier(&cpr->freq_transition,
 					CPUFREQ_TRANSITION_NOTIFIER);
 
-	register_syscore_ops(&msm_cpr_syscore_ops);
-
 	return res;
 
 err_reg_get:
@@ -914,7 +864,6 @@ err_reg_get:
 err_ioremap:
 	iounmap(base);
 out:
-	enable = false;
 	return res;
 }
 
@@ -922,7 +871,6 @@ static int __devexit msm_cpr_remove(struct platform_device *pdev)
 {
 	struct msm_cpr *cpr = platform_get_drvdata(pdev);
 
-	unregister_syscore_ops(&msm_cpr_syscore_ops);
 	cpufreq_unregister_notifier(&cpr->freq_transition,
 					CPUFREQ_TRANSITION_NOTIFIER);
 
@@ -936,12 +884,20 @@ static int __devexit msm_cpr_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static const struct dev_pm_ops msm_cpr_dev_pm_ops = {
+	.suspend = msm_cpr_suspend,
+	.resume = msm_cpr_resume,
+};
+
 static struct platform_driver msm_cpr_driver = {
 	.probe = msm_cpr_probe,
 	.remove = __devexit_p(msm_cpr_remove),
 	.driver = {
 		.name = MODULE_NAME,
 		.owner = THIS_MODULE,
+#ifdef CONFIG_PM
+		.pm = &msm_cpr_dev_pm_ops,
+#endif
 	},
 };
 

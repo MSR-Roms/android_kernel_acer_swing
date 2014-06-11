@@ -22,6 +22,7 @@
 #include <mach/gpiomux.h>
 #include "gpio-msm-common.h"
 
+#if !defined(CONFIG_ARCH_ACER_MSM8960)
 /* Bits of interest in the GPIO_IN_OUT register.
  */
 enum {
@@ -90,6 +91,7 @@ enum {
 #define GPIO_IN_OUT(gpio)         (MSM_TLMM_BASE + 0x1004 + (0x10 * (gpio)))
 #define GPIO_INTR_CFG(gpio)       (MSM_TLMM_BASE + 0x1008 + (0x10 * (gpio)))
 #define GPIO_INTR_STATUS(gpio)    (MSM_TLMM_BASE + 0x100c + (0x10 * (gpio)))
+#endif
 
 static inline void set_gpio_bits(unsigned n, void __iomem *reg)
 {
@@ -153,6 +155,11 @@ void __msm_gpio_set_intr_cfg_enable(unsigned gpio, unsigned val)
 	} else {
 		clr_gpio_bits(INTR_ENABLE, GPIO_INTR_CFG(gpio));
 	}
+}
+
+unsigned  __msm_gpio_get_intr_cfg_enable(unsigned gpio)
+{
+	return __msm_gpio_get_intr_config(gpio) & INTR_ENABLE;
 }
 
 void __msm_gpio_set_intr_cfg_type(unsigned gpio, unsigned type)

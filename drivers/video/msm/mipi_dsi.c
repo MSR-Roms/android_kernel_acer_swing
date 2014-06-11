@@ -69,6 +69,8 @@ static int mipi_dsi_off(struct platform_device *pdev)
 	struct msm_fb_data_type *mfd;
 	struct msm_panel_info *pinfo;
 
+	pr_debug("%s+:\n", __func__);
+
 	mfd = platform_get_drvdata(pdev);
 	pinfo = &mfd->panel_info;
 
@@ -77,15 +79,14 @@ static int mipi_dsi_off(struct platform_device *pdev)
 	else
 		down(&mfd->dma->mutex);
 
-	mdp4_overlay_dsi_state_set(ST_DSI_SUSPEND);
+	if (mfd->panel_info.type == MIPI_CMD_PANEL) {
+		mipi_dsi_prepare_clocks();
+		mipi_dsi_ahb_ctrl(1);
+		mipi_dsi_clk_enable();
 
-	/* make sure dsi clk is on so that
-	 * dcs commands can be sent
-	 */
-	mipi_dsi_clk_cfg(1);
-
-	/* make sure dsi_cmd_mdp is idle */
-	mipi_dsi_cmd_mdp_busy();
+		/* make sure dsi_cmd_mdp is idle */
+		mipi_dsi_cmd_mdp_busy();
+	}
 
 	/*
 	 * Desctiption: change to DSI_CMD_MODE since it needed to
@@ -129,7 +130,7 @@ static int mipi_dsi_off(struct platform_device *pdev)
 	else
 		up(&mfd->dma->mutex);
 
-	pr_debug("%s-:\n", __func__);
+	pr_debug("End of %s ....:\n", __func__);
 
 	return ret;
 }
@@ -147,6 +148,8 @@ static int mipi_dsi_on(struct platform_device *pdev)
 	u32 ystride, bpp, data;
 	u32 dummy_xres, dummy_yres;
 	int target_type = 0;
+
+	pr_debug("%s+:\n", __func__);
 
 	mfd = platform_get_drvdata(pdev);
 	fbi = mfd->fbi;
@@ -305,22 +308,25 @@ static int mipi_dsi_on(struct platform_device *pdev)
 					}
 				}
 			}
+#ifndef CONFIG_MACH_ACER_A9
 			mipi_dsi_set_tear_on(mfd);
+#endif
 		}
+		mipi_dsi_clk_disable();
+		mipi_dsi_ahb_ctrl(0);
+		mipi_dsi_unprepare_clocks();
 	}
 
 #ifdef CONFIG_MSM_BUS_SCALING
 	mdp_bus_scale_update_request(2);
 #endif
 
-	mdp4_overlay_dsi_state_set(ST_DSI_RESUME);
-
 	if (mdp_rev >= MDP_REV_41)
 		mutex_unlock(&mfd->dma->ov_mutex);
 	else
 		up(&mfd->dma->mutex);
 
-	pr_debug("%s-:\n", __func__);
+	pr_debug("End of %s....:\n", __func__);
 
 	return ret;
 }
@@ -416,7 +422,9 @@ static int mipi_dsi_probe(struct platform_device *pdev)
 
 		if (mipi_dsi_clk_init(pdev))
 			return -EPERM;
-
+#ifdef CONFIG_FB_MSM_MIPI_DSI_SHARP
+		mipi_dsi_prepare_clocks();
+#endif
 		if (mipi_dsi_pdata->splash_is_enabled &&
 			!mipi_dsi_pdata->splash_is_enabled()) {
 			mipi_dsi_ahb_ctrl(1);
@@ -443,7 +451,6 @@ static int mipi_dsi_probe(struct platform_device *pdev)
 
 	if (pdev_list_cnt >= MSM_FB_MAX_DEV_LIST)
 		return -ENOMEM;
-
 	if (!mfd->cont_splash_done)
 		cont_splash_clk_ctrl(1);
 
@@ -562,10 +569,16 @@ static int mipi_dsi_probe(struct platform_device *pdev)
 	if (rc)
 		goto mipi_dsi_probe_err;
 
+/* A workaround for A11 and 223000000 is used from M8960AAAAANLYD2021 */
+#ifdef CONFIG_FB_MSM_MIPI_DSI_SHARP
+	if ((dsi_pclk_rate < 3300000) || (dsi_pclk_rate > 223000000))
+		dsi_pclk_rate = 35000000;
+#else
 	if ((dsi_pclk_rate < 3300000) || (dsi_pclk_rate > 103300000))
 		dsi_pclk_rate = 35000000;
-	mipi->dsi_pclk_rate = dsi_pclk_rate;
+#endif
 
+	mipi->dsi_pclk_rate = dsi_pclk_rate;
 	/*
 	 * set driver data
 	 */

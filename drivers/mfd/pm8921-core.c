@@ -63,6 +63,7 @@ struct pm8921 {
 	struct mfd_cell					*mfd_regulators;
 	struct pm8xxx_regulator_core_platform_data	*regulator_cdata;
 	u32						rev_registers;
+	u8						restart_reason;
 };
 
 static int pm8921_readb(const struct device *dev, u16 addr, u8 *val)
@@ -133,6 +134,14 @@ static int pm8921_get_revision(const struct device *dev)
 	return pmic->rev_registers & PM8921_REVISION_MASK;
 }
 
+static u8 pm8921_restart_reason(const struct device *dev)
+{
+	const struct pm8xxx_drvdata *pm8921_drvdata = dev_get_drvdata(dev);
+	const struct pm8921 *pmic = pm8921_drvdata->pm_chip_data;
+
+	return pmic->restart_reason;
+}
+
 static struct pm8xxx_drvdata pm8921_drvdata = {
 	.pmic_readb		= pm8921_readb,
 	.pmic_writeb		= pm8921_writeb,
@@ -141,6 +150,7 @@ static struct pm8xxx_drvdata pm8921_drvdata = {
 	.pmic_read_irq_stat	= pm8921_read_irq_stat,
 	.pmic_get_version	= pm8921_get_version,
 	.pmic_get_revision	= pm8921_get_revision,
+	.pmic_restart_reason	= pm8921_restart_reason,
 };
 
 static struct resource gpio_cell_resources[] = {
@@ -815,17 +825,6 @@ bail:
 	return ret;
 }
 
-static const char * const pm8921_restart_reason[] = {
-	[0] = "Unknown",
-	[1] = "Triggered from CBL (external charger)",
-	[2] = "Triggered from KPD (power key press)",
-	[3] = "Triggered from CHG (usb charger insertion)",
-	[4] = "Triggered from SMPL (sudden momentary power loss)",
-	[5] = "Triggered from RTC (real time clock)",
-	[6] = "Triggered by Hard Reset",
-	[7] = "Triggered by General Purpose Trigger",
-};
-
 static const char * const pm8921_rev_names[] = {
 	[PM8XXX_REVISION_8921_TEST]	= "test",
 	[PM8XXX_REVISION_8921_1p0]	= "1.0",
@@ -847,13 +846,63 @@ static const char * const pm8917_rev_names[] = {
 	[PM8XXX_REVISION_8917_1p0]	= "1.0",
 };
 
+#ifdef CONFIG_ARCH_ACER_MSM8960
+static enum pm8xxx_version version;
+static int revision;
+
+static ssize_t show_version(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	if (version == PM8XXX_VERSION_8921) {
+		return sprintf(buf, "PM8921\n");
+	} else if (version == PM8XXX_VERSION_8922) {
+		return sprintf(buf, "PM8922\n");
+	} else {
+		return sprintf(buf, "unknown\n");
+	}
+}
+
+static ssize_t show_revision(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	const char *revision_name = "unknown";
+
+	if (version == PM8XXX_VERSION_8921) {
+		if (revision >= 0 && revision < ARRAY_SIZE(pm8921_rev_names))
+			revision_name = pm8921_rev_names[revision];
+	} else if (version == PM8XXX_VERSION_8922) {
+		if (revision >= 0 && revision < ARRAY_SIZE(pm8922_rev_names))
+			revision_name = pm8922_rev_names[revision];
+	}
+
+	return sprintf(buf, "%s\n", revision_name);
+}
+
+static DEVICE_ATTR(chip, S_IRUGO, show_version, NULL);
+static DEVICE_ATTR(version, S_IRUGO, show_revision, NULL);
+
+static struct attribute *pmic_sysfs_entries[] = {
+	&dev_attr_chip.attr,
+	&dev_attr_version.attr,
+	NULL,
+};
+
+static struct attribute_group pmic_attr_group = {
+	.attrs	= pmic_sysfs_entries,
+};
+#endif
+
 static int __devinit pm8921_probe(struct platform_device *pdev)
 {
 	const struct pm8921_platform_data *pdata = pdev->dev.platform_data;
 	const char *revision_name = "unknown";
 	struct pm8921 *pmic;
+#ifdef CONFIG_ARCH_ACER_MSM8960
+	struct kobject *dev_info_pmic_kobj;
+#else
 	enum pm8xxx_version version;
 	int revision;
+#endif
 	int rc;
 	u8 val;
 
@@ -912,14 +961,27 @@ static int __devinit pm8921_probe(struct platform_device *pdev)
 			&& version != PM8XXX_VERSION_8917);
 	}
 
+#ifdef CONFIG_ARCH_ACER_MSM8960
+	dev_info_pmic_kobj = kobject_create_and_add("dev-info_pmic", NULL);
+	if (dev_info_pmic_kobj == NULL) {
+		pr_err("Failed to create dev-info_pmic kobject\n");
+	}
+
+	rc = sysfs_create_group(dev_info_pmic_kobj, &pmic_attr_group);
+	if(rc) {
+		pr_err("Failed to create dev-info_pmic sysfs group\n");
+	}
+#endif
+
 	/* Log human readable restart reason */
 	rc = msm_ssbi_read(pdev->dev.parent, REG_PM8921_PON_CNTRL_3, &val, 1);
 	if (rc) {
 		pr_err("Cannot read restart reason rc=%d\n", rc);
 		goto err_read_rev;
 	}
-	val &= PM8921_RESTART_REASON_MASK;
-	pr_info("PMIC Restart Reason: %s\n", pm8921_restart_reason[val]);
+	val &= PM8XXX_RESTART_REASON_MASK;
+	pr_info("PMIC Restart Reason: %s\n", pm8xxx_restart_reason_str[val]);
+	pmic->restart_reason = val;
 
 	rc = pm8921_add_subdevices(pdata, pmic);
 	if (rc) {

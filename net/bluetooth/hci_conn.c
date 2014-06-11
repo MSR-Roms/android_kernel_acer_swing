@@ -310,7 +310,7 @@ void hci_le_ltk_reply(struct hci_conn *conn, u8 ltk[16])
 	memset(&cp, 0, sizeof(cp));
 
 	cp.handle = cpu_to_le16(conn->handle);
-	memcpy(cp.ltk, ltk, sizeof(ltk));
+	memcpy(cp.ltk, ltk, sizeof(cp.ltk));
 
 	hci_send_cmd(hdev, HCI_OP_LE_LTK_REPLY, sizeof(cp), &cp);
 }
@@ -393,9 +393,7 @@ static void hci_conn_idle(unsigned long arg)
 
 	BT_DBG("conn %p mode %d", conn, conn->mode);
 
-	hci_dev_lock(conn->hdev);
 	hci_conn_enter_sniff_mode(conn);
-	hci_dev_unlock(conn->hdev);
 }
 
 static void hci_conn_rssi_update(struct work_struct *work)
@@ -450,6 +448,8 @@ struct hci_conn *hci_conn_add(struct hci_dev *hdev, int type,
 
 	conn->power_save = 1;
 	conn->disc_timeout = HCI_DISCONN_TIMEOUT;
+	conn->conn_valid = true;
+	spin_lock_init(&conn->lock);
 	wake_lock_init(&conn->idle_lock, WAKE_LOCK_SUSPEND, "bt_idle");
 
 	switch (type) {
@@ -521,6 +521,10 @@ int hci_conn_del(struct hci_conn *conn)
 	struct hci_dev *hdev = conn->hdev;
 
 	BT_DBG("%s conn %p handle %d", hdev->name, conn, conn->handle);
+
+	spin_lock_bh(&conn->lock);
+	conn->conn_valid = false; /* conn data is being released */
+	spin_unlock_bh(&conn->lock);
 
 	/* Make sure no timers are running */
 	del_timer(&conn->idle_timer);
@@ -702,8 +706,6 @@ struct hci_dev *hci_dev_get_amp(bdaddr_t *dst)
 	struct hci_dev *d;
 	struct hci_dev *hdev = NULL;
 
-	BT_DBG("%s dst %s", hdev->name, batostr(dst));
-
 	read_lock_bh(&hci_dev_list_lock);
 
 	list_for_each_entry(d, &hci_dev_list, list) {
@@ -717,9 +719,10 @@ struct hci_dev *hci_dev_get_amp(bdaddr_t *dst)
 		}
 	}
 
-	if (hdev)
+	if (hdev) {
+		BT_DBG("%s dst %s", hdev->name, batostr(dst));
 		hdev = hci_dev_hold(hdev);
-
+	}
 	read_unlock_bh(&hci_dev_list_lock);
 	return hdev;
 }
@@ -970,9 +973,13 @@ void hci_conn_enter_active_mode(struct hci_conn *conn, __u8 force_active)
 
 timer:
 	if (hdev->idle_timeout > 0) {
-		mod_timer(&conn->idle_timer,
-			jiffies + msecs_to_jiffies(hdev->idle_timeout));
-		wake_lock(&conn->idle_lock);
+		spin_lock_bh(&conn->lock);
+		if (conn->conn_valid) {
+			mod_timer(&conn->idle_timer,
+				jiffies + msecs_to_jiffies(hdev->idle_timeout));
+			wake_lock(&conn->idle_lock);
+		}
+		spin_unlock_bh(&conn->lock);
 	}
 }
 

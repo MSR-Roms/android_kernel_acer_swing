@@ -46,6 +46,10 @@ struct msm_xo_voter {
 
 static struct msm_xo msm_xo_sources[NUM_MSM_XO_IDS];
 
+#if defined(CONFIG_ARCH_ACER_MSM8960)
+void debug_dump_all_active_clocks(void);
+#endif
+
 #ifdef CONFIG_DEBUG_FS
 static const char *msm_xo_to_str[NUM_MSM_XO_IDS] = {
 	[MSM_XO_TCXO_D0] = "D0",
@@ -149,6 +153,21 @@ static void msm_xo_dump_xo(struct seq_file *m, struct msm_xo *xo,
 				msm_xo_mode_to_str[voter->mode]);
 }
 
+#if defined(CONFIG_ARCH_ACER_MSM8960)
+static void msm_xo_dump_xo_print(struct msm_xo *xo,
+		const char *name)
+{
+	struct msm_xo_voter *voter;
+
+	pr_info("CXO %-16s%s\n", name, msm_xo_mode_to_str[xo->mode]);
+	list_for_each_entry(voter, &xo->voters, list)
+		pr_info(" %s %-16s %s\n",
+				xo->mode == voter->mode ? "*" : " ",
+				voter->name,
+				msm_xo_mode_to_str[voter->mode]);
+}
+#endif
+
 static int msm_xo_show_voters(struct seq_file *m, void *v)
 {
 	int i;
@@ -160,6 +179,28 @@ static int msm_xo_show_voters(struct seq_file *m, void *v)
 
 	return 0;
 }
+
+#if defined(CONFIG_ARCH_ACER_MSM8960)
+void debug_dump_XO_status(void)
+{
+	struct msm_xo *xo;
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(msm_xo_sources); i++) {
+		xo = &msm_xo_sources[i];
+		if (xo->mode != MSM_XO_MODE_OFF)
+			goto dump_status;
+	}
+	return;
+
+dump_status:
+	for (i = 0; i < ARRAY_SIZE(msm_xo_sources); i++) {
+		msm_xo_dump_xo_print(&msm_xo_sources[i], msm_xo_to_str[i]);
+	}
+	debug_dump_all_active_clocks();
+}
+EXPORT_SYMBOL(debug_dump_XO_status);
+#endif
 
 static int msm_xo_voters_open(struct inode *inode, struct file *file)
 {

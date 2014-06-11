@@ -44,6 +44,8 @@
 #define SEC_SRC_SEL_L2PLL	1
 #define SEC_SRC_SEL_AUX		2
 
+#define SECCLKAGD		BIT(4)
+
 /* PTE EFUSE register offset. */
 #define PTE_EFUSE		0xC0
 
@@ -60,6 +62,8 @@ static struct drv_data {
 	int boost_uv;
 	struct device *dev;
 } drv;
+
+struct acpu_level *acpu_freq_tbl;
 
 static unsigned long acpuclk_krait_get_rate(int cpu)
 {
@@ -85,10 +89,20 @@ static void set_sec_clk_src(struct scalable *sc, u32 sec_src_sel)
 {
 	u32 regval;
 
+	/* 8064 Errata: disable sec_src clock gating during switch. */
 	regval = get_l2_indirect_reg(sc->l2cpmr_iaddr);
+	regval |= SECCLKAGD;
+	set_l2_indirect_reg(sc->l2cpmr_iaddr, regval);
+
+	/* Program the MUX */
 	regval &= ~(0x3 << 2);
 	regval |= ((sec_src_sel & 0x3) << 2);
 	set_l2_indirect_reg(sc->l2cpmr_iaddr, regval);
+
+	/* 8064 Errata: re-enabled sec_src clock gating. */
+	regval &= ~SECCLKAGD;
+	set_l2_indirect_reg(sc->l2cpmr_iaddr, regval);
+
 	/* Wait for switch to complete. */
 	mb();
 	udelay(1);
@@ -909,9 +923,9 @@ static const int krait_needs_vmin(void)
 
 static void krait_apply_vmin(struct acpu_level *tbl)
 {
-	for (; tbl->speed.khz != 0; tbl++)
-		if (tbl->vdd_core < 1150000)
-			tbl->vdd_core = 1150000;
+//	for (; tbl->speed.khz != 0; tbl++)
+//		if (tbl->vdd_core < 1150000)
+//			tbl->vdd_core = 1150000;
 }
 
 static int __init select_freq_plan(u32 qfprom_phys)
@@ -992,6 +1006,7 @@ static void __init drv_data_init(struct device *dev,
 	drv.acpu_freq_tbl = kmemdup(params->pvs_tables[tbl_idx].table,
 				    params->pvs_tables[tbl_idx].size,
 				    GFP_KERNEL);
+	acpu_freq_tbl = drv.acpu_freq_tbl;
 	BUG_ON(!drv.acpu_freq_tbl);
 	drv.boost_uv = params->pvs_tables[tbl_idx].boost_uv;
 

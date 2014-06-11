@@ -47,6 +47,7 @@ int wcnss_wlan_power(struct device *dev,
 int req_riva_power_on_lock(char *driver_name);
 int free_riva_power_on_lock(char *driver_name);
 unsigned int wcnss_get_serial_number(void);
+void wlan_dev_info( unsigned char *,  unsigned char *,  unsigned char  *);
 #define wcnss_wlan_get_drvdata(dev) dev_get_drvdata(dev)
 #define wcnss_wlan_set_drvdata(dev, data) dev_set_drvdata((dev), (data))
 

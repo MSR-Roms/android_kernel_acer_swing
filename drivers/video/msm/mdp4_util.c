@@ -356,15 +356,22 @@ void mdp4_clear_lcdc(void)
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 }
 
+uint32 g_mdp4_debug_foot = 0;
+inline void mdp4_debug_footprint(uint32 val)
+{
+	g_mdp4_debug_foot = val;
+	mb();
+}
+
 irqreturn_t mdp4_isr(int irq, void *ptr)
 {
 	uint32 isr, mask, panel;
 	struct mdp_dma_data *dma;
 	struct mdp_hist_mgmt *mgmt = NULL;
-	char *base_addr;
 	int i, ret;
 
 	mdp_is_in_isr = TRUE;
+	mdp4_debug_footprint(0xAAA1);
 
 	/* complete all the reads before reading the interrupt
 	* status register - eliminate effects of speculative
@@ -378,9 +385,11 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 	mdp4_stat.intr_tot++;
 	mask = inpdw(MDP_INTR_ENABLE);
 	outpdw(MDP_INTR_CLEAR, isr);
+	mdp4_debug_footprint(0xAAA2);
 
 	if (isr & INTR_PRIMARY_INTF_UDERRUN) {
 		pr_debug("%s: UNDERRUN -- primary\n", __func__);
+		mdp4_debug_footprint(0xAAA3);
 		mdp4_stat.intr_underrun_p++;
 		/* When underun occurs mdp clear the histogram registers
 		that are set before in hw_init so restore them back so
@@ -389,12 +398,7 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 			mgmt = mdp_hist_mgmt_array[i];
 			if (!mgmt)
 				continue;
-			base_addr = MDP_BASE + mgmt->base;
-			MDP_OUTP(base_addr + 0x010, 1);
-			outpdw(base_addr + 0x01c, INTR_HIST_DONE |
-						INTR_HIST_RESET_SEQ_DONE);
 			mgmt->mdp_is_hist_valid = FALSE;
-			__mdp_histogram_reset(mgmt);
 		}
 	}
 
@@ -413,6 +417,7 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 	if (isr & INTR_DMA_P_DONE) {
 		mdp4_stat.intr_dma_p++;
 		dma = &dma2_data;
+		mdp4_debug_footprint(0xAAA4);
 		if (panel & MDP4_PANEL_LCDC)
 			mdp4_dmap_done_lcdc(0);
 #ifdef CONFIG_FB_MSM_OVERLAY
@@ -439,6 +444,7 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 #endif
 	}
 	if (isr & INTR_DMA_S_DONE) {
+		mdp4_debug_footprint(0xAAA5);
 		mdp4_stat.intr_dma_s++;
 #if defined(CONFIG_FB_MSM_OVERLAY) && defined(CONFIG_FB_MSM_MDDI)
 		dma = &dma2_data;
@@ -452,12 +458,14 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 		complete(&dma->comp);
 	}
 	if (isr & INTR_DMA_E_DONE) {
+		mdp4_debug_footprint(0xAAA6);
 		mdp4_stat.intr_dma_e++;
 		if (panel & MDP4_PANEL_DTV)
 			mdp4_dmae_done_dtv();
 	}
 #ifdef CONFIG_FB_MSM_OVERLAY
 	if (isr & INTR_OVERLAY0_DONE) {
+		mdp4_debug_footprint(0xAAA7);
 		mdp4_stat.intr_overlay0++;
 		dma = &dma2_data;
 		if (panel & (MDP4_PANEL_LCDC | MDP4_PANEL_DSI_VIDEO)) {
@@ -480,6 +488,7 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 		mdp_hw_cursor_done();
 	}
 	if (isr & INTR_OVERLAY1_DONE) {
+		mdp4_debug_footprint(0xAAA8);
 		mdp4_stat.intr_overlay1++;
 		/* disable DTV interrupt */
 		dma = &dma_e_data;
@@ -514,6 +523,7 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 #endif	/* OVERLAY */
 
 	if (isr & INTR_PRIMARY_VSYNC) {
+		mdp4_debug_footprint(0xAAA9);
 		mdp4_stat.intr_vsync_p++;
 		if (panel & MDP4_PANEL_LCDC)
 			mdp4_primary_vsync_lcdc();
@@ -522,43 +532,49 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 	}
 #ifdef CONFIG_FB_MSM_DTV
 	if (isr & INTR_EXTERNAL_VSYNC) {
+		mdp4_debug_footprint(0xAAAA);
 		mdp4_stat.intr_vsync_e++;
 		if (panel & MDP4_PANEL_DTV)
 			mdp4_external_vsync_dtv();
 	}
 #endif
 	if (isr & INTR_DMA_P_HISTOGRAM) {
+		mdp4_debug_footprint(0xAAAB);
 		mdp4_stat.intr_histogram++;
 		ret = mdp_histogram_block2mgmt(MDP_BLOCK_DMA_P, &mgmt);
 		if (!ret)
 			mdp_histogram_handle_isr(mgmt);
 	}
 	if (isr & INTR_DMA_S_HISTOGRAM) {
+		mdp4_debug_footprint(0xAAAC);
 		mdp4_stat.intr_histogram++;
 		ret = mdp_histogram_block2mgmt(MDP_BLOCK_DMA_S, &mgmt);
 		if (!ret)
 			mdp_histogram_handle_isr(mgmt);
 	}
 	if (isr & INTR_VG1_HISTOGRAM) {
+		mdp4_debug_footprint(0xAAAD);
 		mdp4_stat.intr_histogram++;
 		ret = mdp_histogram_block2mgmt(MDP_BLOCK_VG_1, &mgmt);
 		if (!ret)
 			mdp_histogram_handle_isr(mgmt);
 	}
 	if (isr & INTR_VG2_HISTOGRAM) {
+		mdp4_debug_footprint(0xAAAE);
 		mdp4_stat.intr_histogram++;
 		ret = mdp_histogram_block2mgmt(MDP_BLOCK_VG_2, &mgmt);
 		if (!ret)
 			mdp_histogram_handle_isr(mgmt);
 	}
 	if (isr & INTR_PRIMARY_RDPTR) {
+		mdp4_debug_footprint(0xAAAF);
 		mdp4_stat.intr_rdptr++;
 		mdp4_primary_rdptr();
 	}
 
 out:
 	mdp_is_in_isr = FALSE;
-
+	mdp4_debug_footprint(0xAABA);
 	return IRQ_HANDLED;
 }
 

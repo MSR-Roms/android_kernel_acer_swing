@@ -175,6 +175,7 @@ config ARCH_MSM8960
 	select HOLES_IN_ZONE if SPARSEMEM
 	select MSM_RUN_QUEUE_STATS
 	select ARM_HAS_SG_CHAIN
+	select MSM_IOMMU_GPU_SYNC
 
 config ARCH_MSM8930
 	bool "MSM8930"
@@ -206,6 +207,7 @@ config ARCH_MSM8930
 	select MSM_PM8X60 if PM
 	select HOLES_IN_ZONE if SPARSEMEM
 	select ARM_HAS_SG_CHAIN
+	select MSM_IOMMU_GPU_SYNC
 
 config ARCH_APQ8064
 	bool "APQ8064"
@@ -232,6 +234,7 @@ config ARCH_APQ8064
 	select MIGHT_HAVE_PCI
 	select ARCH_SUPPORTS_MSI
 	select ARM_HAS_SG_CHAIN
+	select MSM_IOMMU_GPU_SYNC
 
 config ARCH_MSM8974
 	bool "MSM8974"
@@ -314,6 +317,12 @@ config ARCH_MSM9625
 	select MSM_GPIOMUX
 	select MULTI_IRQ_HANDLER
 	select GPIO_MSM_V2
+
+config ARCH_ACER_MSM8960
+	depends on ARCH_MSM8960
+	bool "ACER 8960 Platform"
+	help
+	Support for the ACER MSM8960 Platform.
 
 endmenu
 
@@ -415,6 +424,21 @@ config MSM_REMOTE_SPINLOCK_SFPB
 	bool
 config MSM_ADM3
 	bool
+
+menu "Acer Board Selection"
+config MACH_ACER_A9
+	depends on ARCH_ACER_MSM8960
+	bool "ACER A9"
+	help
+		Support for the ACER A9.
+
+config MACH_ACER_A11RD
+	depends on ARCH_ACER_MSM8960
+	bool "ACER A11RD"
+	select MACH_ACER_A9
+	help
+		Support for the ACER A11RD.
+endmenu
 
 menu "MSM Board Selection"
 
@@ -875,6 +899,17 @@ config MACH_FSM9XXX_SURF
 	  FFA board.
 
 endmenu
+
+config RAMDUMP_TAGS
+	bool
+	default y
+	help
+
+
+config AMSS_LASTLOG
+	bool
+	default y
+	help
 
 config MSM_STACKED_MEMORY
 	bool "Stacked Memory"
@@ -2154,6 +2189,13 @@ config MSM_STANDALONE_POWER_COLLAPSE
        bool "Enable standalone power collapse"
        default n
 
+config FORCE_FAST_CHARGE
+	bool "Force AC charge mode at will"
+  	default y
+  	help
+    	  A simple sysfs interface to force adapters that
+    	  are detected as USB to charge as AC.
+
 config MSM_GSBI9_UART
 	bool "Enable GSBI9 UART device"
 	default n
@@ -2465,9 +2507,4 @@ config MSM_HSIC_SYSMON_TEST
 	  can be read and written to send character data to the sysmon port of
 	  the modem over USB.
 
-config MSM_8X60_FUSION_GPIO_GLITCH
-	tristate "Mask unexpected glitch during boot up"
-	help
-	  Enable masking of glitch during boot up, which helps in avoiding unwanted
-	  noise or s/w code from toggling the ap2mdm err fatal.
 endif

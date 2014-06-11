@@ -1892,6 +1892,11 @@ struct platform_device msm_multi_ch_pcm = {
 	.id	= -1,
 };
 
+struct platform_device msm_lowlatency_pcm = {
+	.name	= "msm-lowlatency-pcm-dsp",
+	.id	= -1,
+};
+
 struct platform_device msm_pcm_routing = {
 	.name	= "msm-pcm-routing",
 	.id	= -1,
@@ -2105,6 +2110,8 @@ static struct fs_driver_data mdp_fs_data = {
 		{ .name = "lut_clk" },
 		{ .name = "tv_src_clk" },
 		{ .name = "tv_clk" },
+		{ .name = "reset1_clk" },
+		{ .name = "reset2_clk" },
 		{ 0 }
 	},
 	.bus_port0 = MSM_BUS_MASTER_MDP_PORT0,
@@ -3307,8 +3314,8 @@ struct platform_device msm8960_rpm_log_device = {
 };
 
 static struct msm_rpmstats_platform_data msm_rpm_stat_pdata = {
-	.phys_addr_base = 0x0010D204,
-	.phys_size = SZ_8K,
+	.phys_addr_base = 0x0010DD04,
+	.phys_size = SZ_256,
 };
 
 struct platform_device msm8960_rpm_stat_device = {

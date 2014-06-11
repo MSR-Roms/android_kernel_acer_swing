@@ -66,5 +66,9 @@ struct reserve_info {
 
 extern struct reserve_info *reserve_info;
 
+#ifdef CONFIG_ANDROID_RAM_CONSOLE
+unsigned long __init reserve_memory_for_log(char *name, unsigned long mem_size);
+#endif
+
 unsigned long __init reserve_memory_for_fmem(unsigned long, unsigned long);
 #endif

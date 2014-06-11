@@ -692,6 +692,13 @@ static void qup_i2c_recover_bus_busy(struct qup_i2c_dev *dev)
 		return;
 	}
 
+#ifdef CONFIG_MACH_ACER_A9
+	if (qup_i2c_request_gpios(dev)) {
+		dev_err(dev->dev, "Recovery failed due to request GPIO failed\n");
+		return;
+	}
+#endif
+
 	disable_irq(dev->err_irq);
 	for (i = 0; i < ARRAY_SIZE(i2c_rsrcs); ++i) {
 		if (msm_gpiomux_write(dev->i2c_gpios[i], GPIOMUX_ACTIVE,
@@ -742,6 +749,9 @@ static void qup_i2c_recover_bus_busy(struct qup_i2c_dev *dev)
 
 recovery_end:
 	enable_irq(dev->err_irq);
+#ifdef CONFIG_MACH_ACER_A9
+	qup_i2c_free_gpios(dev);
+#endif
 }
 
 static int
@@ -1236,9 +1246,11 @@ blsp_core_init:
 		dev->i2c_gpios[i] = res ? res->start : -1;
 	}
 
+#ifndef CONFIG_MACH_ACER_A9
 	ret = qup_i2c_request_gpios(dev);
 	if (ret)
 		goto err_request_gpio_failed;
+#endif
 
 	platform_set_drvdata(pdev, dev);
 
@@ -1352,7 +1364,9 @@ err_request_irq_failed:
 err_reset_failed:
 	clk_disable_unprepare(dev->clk);
 	clk_disable_unprepare(dev->pclk);
+#ifndef CONFIG_MACH_ACER_A9
 err_request_gpio_failed:
+#endif
 err_gsbi_failed:
 	iounmap(dev->base);
 err_ioremap_failed:
@@ -1433,7 +1447,9 @@ static int qup_i2c_suspend(struct device *device)
 		qup_i2c_pwr_mgmt(dev, 0);
 	clk_unprepare(dev->clk);
 	clk_unprepare(dev->pclk);
+#ifndef CONFIG_MACH_ACER_A9
 	qup_i2c_free_gpios(dev);
+#endif
 	return 0;
 }
 
@@ -1441,7 +1457,9 @@ static int qup_i2c_resume(struct device *device)
 {
 	struct platform_device *pdev = to_platform_device(device);
 	struct qup_i2c_dev *dev = platform_get_drvdata(pdev);
+#ifndef CONFIG_MACH_ACER_A9
 	BUG_ON(qup_i2c_request_gpios(dev) != 0);
+#endif
 	clk_prepare(dev->clk);
 	clk_prepare(dev->pclk);
 	dev->suspended = 0;

@@ -64,6 +64,7 @@ static inline struct msm_v4l2_vid_inst *get_v4l2_inst(struct file *filp,
 			struct msm_v4l2_vid_inst, vidc_inst);
 }
 
+#ifndef CONFIG_MACH_ACER_A9
 static int msm_vidc_v4l2_setup_event_queue(void *inst,
 				struct video_device *pvdev)
 {
@@ -77,6 +78,7 @@ static int msm_vidc_v4l2_setup_event_queue(void *inst,
 
 	return rc;
 }
+#endif
 
 struct buffer_info *get_registered_buf(struct list_head *list,
 				int fd, u32 buff_off, u32 size)
@@ -104,6 +106,7 @@ err_invalid_input:
 	return ret;
 }
 
+#ifndef CONFIG_MACH_ACER_A9
 static int msm_v4l2_open(struct file *filp)
 {
 	int rc = 0;
@@ -171,6 +174,7 @@ static int msm_v4l2_querycap(struct file *filp, void *fh,
 	struct msm_vidc_inst *vidc_inst = get_vidc_inst(filp, fh);
 	return msm_vidc_querycap((void *)vidc_inst, cap);
 }
+#endif
 
 int msm_v4l2_enum_fmt(struct file *file, void *fh,
 					struct v4l2_fmtdesc *f)
@@ -355,6 +359,7 @@ int msm_v4l2_streamoff(struct file *file, void *fh,
 	return msm_vidc_streamoff((void *)vidc_inst, i);
 }
 
+#ifndef CONFIG_MACH_ACER_A9
 static int msm_v4l2_subscribe_event(struct v4l2_fh *fh,
 				struct v4l2_event_subscription *sub)
 {
@@ -600,3 +605,4 @@ static void __exit msm_vidc_exit(void)
 
 module_init(msm_vidc_init);
 module_exit(msm_vidc_exit);
+#endif

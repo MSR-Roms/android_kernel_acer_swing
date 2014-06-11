@@ -1103,9 +1103,9 @@ static void audlpa_unmap_ion_region(struct audio *audio)
 	pr_debug("%s[%p]:\n", __func__, audio);
 	list_for_each_safe(ptr, next, &audio->ion_region_queue) {
 		region = list_entry(ptr, struct audlpa_ion_region, list);
-		pr_debug("%s[%p]: phy_address = 0x%lx\n",
-			__func__, audio, region->paddr);
 		if (region != NULL) {
+			pr_debug("%s[%p]: phy_address = 0x%lx\n",
+					__func__, audio, region->paddr);
 			rc = q6asm_memory_unmap(audio->ac,
 					(uint32_t)region->paddr, IN);
 			if (rc < 0)

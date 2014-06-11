@@ -42,9 +42,20 @@
 #include <linux/power_supply.h>
 
 #include <mach/clk.h>
+#include <mach/mpm.h>
 #include <mach/msm_xo.h>
 #include <mach/msm_bus.h>
 #include <mach/rpm-regulator.h>
+
+#ifdef CONFIG_MACH_ACER_A9
+#include "../../../arch/arm/mach-msm/board-acer-8960.h"
+extern int acer_boot_mode;
+#endif
+
+#ifdef CONFIG_FORCE_FAST_CHARGE
+#include <linux/fastchg.h>
+#define USB_FASTCHG_LOAD 1000 /* uA */
+#endif
 
 #define MSM_USB_BASE	(motg->regs)
 #define DRIVER_NAME	"msm_otg"
@@ -76,6 +87,26 @@ static struct regulator *hsusb_vddcx;
 static struct regulator *vbus_otg;
 static struct regulator *mhl_usb_hs_switch;
 static struct power_supply *psy;
+
+#ifdef CONFIG_MACH_ACER_A9
+static bool ac_worker = false;
+
+static void wait_for_ac_worker(struct work_struct *w)
+{
+	struct msm_otg *motg = container_of(w, struct msm_otg, wait_for_ac_work.work);
+
+	if(motg->cur_power != IDEV_CHG_MIN){
+#ifdef CONFIG_POWER_SUPPLY_TYPE_UNKNOW
+		pm8921_set_usb_power_supply_type(POWER_SUPPLY_TYPE_UNKNOW);
+#else
+		pm8921_charger_vbus_draw(IDEV_CHG_MAX);
+#endif
+		motg->cur_power = IDEV_CHG_MAX;
+		ac_worker = false;
+		pr_info("%s, Unknow device, set current power to %d \n",__func__,motg->cur_power);
+	}
+}
+#endif
 
 static bool aca_id_turned_on;
 static inline bool aca_enabled(void)
@@ -453,7 +484,12 @@ static int msm_otg_reset(struct usb_phy *phy)
 	int ret;
 	u32 val = 0;
 	u32 ulpi_val = 0;
-
+#ifdef CONFIG_MACH_ACER_A9
+	if (ac_worker) {
+		pr_info("cancel delayed work,  wait_for_ac_work\n");
+		cancel_delayed_work_sync(&motg->wait_for_ac_work);
+	}
+#endif
 	/*
 	 * USB PHY and Link reset also reset the USB BAM.
 	 * Thus perform reset operation only once to avoid
@@ -868,6 +904,9 @@ static int msm_otg_suspend(struct msm_otg *motg)
 		enable_irq_wake(motg->irq);
 		if (motg->pdata->pmic_id_irq)
 			enable_irq_wake(motg->pdata->pmic_id_irq);
+		if (pdata->otg_control == OTG_PHY_CONTROL &&
+			pdata->mpm_otgsessvld_int)
+			msm_mpm_set_pin_wake(pdata->mpm_otgsessvld_int, 1);
 	}
 	if (bus)
 		clear_bit(HCD_FLAG_HW_ACCESSIBLE, &(bus_to_hcd(bus))->flags);
@@ -885,6 +924,7 @@ static int msm_otg_resume(struct msm_otg *motg)
 {
 	struct usb_phy *phy = &motg->phy;
 	struct usb_bus *bus = phy->otg->host;
+	struct msm_otg_platform_data *pdata = motg->pdata;
 	int cnt = 0;
 	unsigned temp;
 	u32 phy_ctrl_val = 0;
@@ -963,6 +1003,9 @@ skip_phy_resume:
 		disable_irq_wake(motg->irq);
 		if (motg->pdata->pmic_id_irq)
 			disable_irq_wake(motg->pdata->pmic_id_irq);
+		if (pdata->otg_control == OTG_PHY_CONTROL &&
+			pdata->mpm_otgsessvld_int)
+			msm_mpm_set_pin_wake(pdata->mpm_otgsessvld_int, 0);
 	}
 	if (bus)
 		set_bit(HCD_FLAG_HW_ACCESSIBLE, &(bus_to_hcd(bus))->flags);
@@ -1073,6 +1116,22 @@ static void msm_otg_notify_charger(struct msm_otg *motg, unsigned mA)
 		return;
 
 	dev_info(motg->phy.dev, "Avail curr from USB = %u\n", mA);
+
+#ifdef CONFIG_FORCE_FAST_CHARGE
+  if (force_fast_charge == 1) {
+    // DooMLoRD: dont override charging current if available current is greater
+    if (mA >= USB_FASTCHG_LOAD){
+      pr_info("Available current already greater than USB fastcharging current!!!\n");
+      pr_info("Override of USB charging current cancelled.\n");
+    } else {   
+      mA = USB_FASTCHG_LOAD;
+      pr_info("USB fast charging is ON!!!\n");
+    }
+      dev_info(motg->phy.dev, "Avail curr from USB = %u\n", mA);
+  } else {
+    pr_info("USB fast charging is OFF.\n");
+  }
+#endif
 
 	/*
 	 *  Use Power Supply API if supported, otherwise fallback
@@ -1782,6 +1841,8 @@ static void msm_chg_block_on(struct msm_otg *motg)
 		udelay(20);
 		break;
 	case SNPS_28NM_INTEGRATED_PHY:
+		/* disable DP and DM pull down resistors */
+		ulpi_write(phy, 0x6, 0xC);
 		/* Clear charger detecting control bits */
 		ulpi_write(phy, 0x1F, 0x86);
 		/* Clear alt interrupt latch and enable bits */
@@ -1793,6 +1854,18 @@ static void msm_chg_block_on(struct msm_otg *motg)
 		break;
 	}
 }
+
+#ifdef CONFIG_MACH_ACER_A9
+static void set_eye_diagram(struct msm_otg *motg)
+{
+	/* Eye diagram for HW USB certification */
+	/* Set Qualcomm register PARAMETER_OVERRIDE_B from 0x33 to 0x3f */
+	ulpi_write(&motg->phy, 0x3f,0x81);
+
+	/* Set Qualcomm register PARAMETER_OVERRIDE_C from 0x14 to 0x34 */
+	ulpi_write(&motg->phy, 0x34,0x82);
+}
+#endif
 
 static void msm_chg_block_off(struct msm_otg *motg)
 {
@@ -1855,8 +1928,7 @@ static void msm_chg_detect_work(struct work_struct *w)
 	switch (motg->chg_state) {
 	case USB_CHG_STATE_UNDEFINED:
 		msm_chg_block_on(motg);
-		if (motg->pdata->enable_dcd)
-			msm_chg_enable_dcd(motg);
+		msm_chg_enable_dcd(motg);
 		msm_chg_enable_aca_det(motg);
 		motg->chg_state = USB_CHG_STATE_WAIT_FOR_DCD;
 		motg->dcd_retries = 0;
@@ -1876,12 +1948,10 @@ static void msm_chg_detect_work(struct work_struct *w)
 				break;
 			}
 		}
-		if (motg->pdata->enable_dcd)
-			is_dcd = msm_chg_check_dcd(motg);
+		is_dcd = msm_chg_check_dcd(motg);
 		tmout = ++motg->dcd_retries == MSM_CHG_DCD_MAX_RETRIES;
 		if (is_dcd || tmout) {
-			if (motg->pdata->enable_dcd)
-				msm_chg_disable_dcd(motg);
+			msm_chg_disable_dcd(motg);
 			msm_chg_enable_primary_det(motg);
 			delay = MSM_CHG_PRIMARY_DET_TIME;
 			motg->chg_state = USB_CHG_STATE_DCD_DONE;
@@ -1890,6 +1960,9 @@ static void msm_chg_detect_work(struct work_struct *w)
 		}
 		break;
 	case USB_CHG_STATE_DCD_DONE:
+#ifdef CONFIG_MACH_ACER_A9
+		set_eye_diagram(motg);
+#endif
 		vout = msm_chg_check_primary_det(motg);
 		line_state = readl_relaxed(USB_PORTSC) & PORTSC_LS;
 		dm_vlgc = line_state & PORTSC_LS_DM;
@@ -2107,6 +2180,26 @@ static void msm_otg_sm_work(struct work_struct *w)
 					msm_otg_start_peripheral(otg, 1);
 					otg->phy->state =
 						OTG_STATE_B_PERIPHERAL;
+#ifdef CONFIG_MACH_ACER_A9
+					/*
+					 * For AC charger plug in/out slowly issue.
+					 * Using delay queue to poll chager state to eliminate hand tremor
+					 * Note: acer_boot_mode 0x02 is Factory test mode
+					 */
+					if (acer_boot_mode == NORMAL_BOOT ||
+					    acer_boot_mode == 0x02) {
+						queue_delayed_work(motg->detect_ac_queue,
+								&motg->wait_for_ac_work, msecs_to_jiffies(3000));
+						ac_worker = true;
+					} else if (acer_boot_mode == CHARGER_BOOT) {
+						/* Boot at Charger only mode*/
+						pr_info("Charger only mode set charging current to 500mA \n");
+						pm8921_charger_vbus_draw(IDEV_CHG_MIN);
+					} else {
+						pr_info("Unknow boot mode, Set unknow charging current to 500mA \n");
+						pm8921_charger_vbus_draw(IDEV_CHG_MIN);
+					}
+#endif
 					break;
 				default:
 					break;
@@ -2593,9 +2686,7 @@ static irqreturn_t msm_otg_irq(int irq, void *data)
 		pr_debug("OTG IRQ: in LPM\n");
 		disable_irq_nosync(irq);
 		motg->async_int = 1;
-		if (atomic_read(&motg->pm_suspended))
-			motg->sm_work_pending = true;
-		else
+		if (!atomic_read(&motg->pm_suspended))
 			pm_request_resume(otg->phy->dev);
 		return IRQ_HANDLED;
 	}
@@ -3431,6 +3522,16 @@ static int __init msm_otg_probe(struct platform_device *pdev)
 	INIT_WORK(&motg->sm_work, msm_otg_sm_work);
 	INIT_DELAYED_WORK(&motg->chg_work, msm_chg_detect_work);
 	INIT_DELAYED_WORK(&motg->pmic_id_status_work, msm_pmic_id_status_w);
+
+#ifdef CONFIG_MACH_ACER_A9
+	motg->detect_ac_queue = create_singlethread_workqueue("detete-AC");
+	if (motg->detect_ac_queue == NULL) {
+		pr_err("detecte_AC: Cannot create workqueue");
+		return -ENOMEM;
+	}
+	INIT_DELAYED_WORK(&motg->wait_for_ac_work, wait_for_ac_worker);
+#endif
+
 	setup_timer(&motg->id_timer, msm_otg_id_timer_func,
 				(unsigned long) motg);
 	ret = request_irq(motg->irq, msm_otg_irq, IRQF_SHARED,
@@ -3439,6 +3540,9 @@ static int __init msm_otg_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "request irq failed\n");
 		goto destroy_wlock;
 	}
+
+	if (pdata->otg_control == OTG_PHY_CONTROL && pdata->mpm_otgsessvld_int)
+		msm_mpm_enable_pin(pdata->mpm_otgsessvld_int, 1);
 
 	phy->init = msm_otg_reset;
 	phy->set_power = msm_otg_set_power;
@@ -3590,6 +3694,10 @@ static int __devexit msm_otg_remove(struct platform_device *pdev)
 	usb_set_transceiver(NULL);
 	free_irq(motg->irq, motg);
 
+	if (motg->pdata->otg_control == OTG_PHY_CONTROL &&
+		motg->pdata->mpm_otgsessvld_int)
+		msm_mpm_enable_pin(motg->pdata->mpm_otgsessvld_int, 0);
+
 	/*
 	 * Put PHY in low power mode.
 	 */
@@ -3690,9 +3798,7 @@ static int msm_otg_pm_resume(struct device *dev)
 	dev_dbg(dev, "OTG PM resume\n");
 
 	atomic_set(&motg->pm_suspended, 0);
-	if (motg->sm_work_pending) {
-		motg->sm_work_pending = false;
-
+	if (motg->async_int || motg->sm_work_pending) {
 		pm_runtime_get_noresume(dev);
 		ret = msm_otg_resume(motg);
 
@@ -3701,7 +3807,10 @@ static int msm_otg_pm_resume(struct device *dev)
 		pm_runtime_set_active(dev);
 		pm_runtime_enable(dev);
 
-		queue_work(system_nrt_wq, &motg->sm_work);
+		if (motg->sm_work_pending) {
+			motg->sm_work_pending = false;
+			queue_work(system_nrt_wq, &motg->sm_work);
+		}
 	}
 
 	return ret;

@@ -42,6 +42,10 @@
 #include <linux/leds.h>
 #include <linux/pm_runtime.h>
 
+#ifdef CONFIG_FB_MSM_LOGO
+#include "../../../arch/arm/mach-msm/board-acer-8960.h"
+#endif
+
 #define MSM_FB_C
 #include "msm_fb.h"
 #include "mddihosti.h"
@@ -53,10 +57,23 @@
 #define MSM_FB_NUM	3
 #endif
 
+#if defined(CONFIG_FB_MSM_LOGO) && defined(CONFIG_MACH_ACER_A9)
+extern int acer_boot_mode;
+#endif
+
+#ifdef CONFIG_FB_MSM_MIPI_DSI_HIMAX
+extern void panel_need_wait(void);
+#endif
+
 static unsigned char *fbram;
 static unsigned char *fbram_phys;
 static int fbram_size;
 static boolean bf_supported;
+/* Set backlight on resume after 50 ms after first
+ * pan display on the panel. This is to avoid panel specific
+ * transients during resume.
+ */
+unsigned long backlight_duration = (HZ/20);
 
 static struct platform_device *pdev_list[MSM_FB_MAX_DEV_LIST];
 static int pdev_list_cnt;
@@ -330,6 +347,8 @@ static void msm_fb_remove_sysfs(struct platform_device *pdev)
 	sysfs_remove_group(&mfd->fbi->dev->kobj, &msm_fb_attr_group);
 }
 
+static void bl_workqueue_handler(struct work_struct *work);
+
 static int msm_fb_probe(struct platform_device *pdev)
 {
 	struct msm_fb_data_type *mfd;
@@ -367,6 +386,8 @@ static int msm_fb_probe(struct platform_device *pdev)
 		return -EPERM;
 
 	mfd = (struct msm_fb_data_type *)platform_get_drvdata(pdev);
+
+	INIT_DELAYED_WORK(&mfd->backlight_worker, bl_workqueue_handler);
 
 	if (!mfd)
 		return -ENODEV;
@@ -422,13 +443,13 @@ static int msm_fb_remove(struct platform_device *pdev)
 
 	msm_fb_remove_sysfs(pdev);
 
-	pm_runtime_disable(mfd->fbi->dev);
-
 	if (!mfd)
 		return -ENODEV;
 
 	if (mfd->key != MFD_KEY)
 		return -EINVAL;
+
+	pm_runtime_disable(mfd->fbi->dev);
 
 	if (msm_fb_suspend_sub(mfd))
 		printk(KERN_ERR "msm_fb_remove: can't stop the device %d\n", mfd->index);
@@ -522,6 +543,7 @@ static int msm_fb_suspend_sub(struct msm_fb_data_type *mfd)
 	mfd->suspend.sw_refreshing_enable = mfd->sw_refreshing_enable;
 	mfd->suspend.op_enable = mfd->op_enable;
 	mfd->suspend.panel_power_on = mfd->panel_power_on;
+	mfd->suspend.op_suspend = true;
 
 	if (mfd->op_enable) {
 		ret =
@@ -586,6 +608,8 @@ static int msm_fb_resume_sub(struct msm_fb_data_type *mfd)
 		if (ret)
 			MSM_FB_INFO("msm_fb_resume: can't turn on display!\n");
 	}
+
+	mfd->suspend.op_suspend = false;
 
 	return ret;
 }
@@ -874,7 +898,9 @@ static int msm_fb_blank_sub(int blank_mode, struct fb_info *info,
 	switch (blank_mode) {
 	case FB_BLANK_UNBLANK:
 		if (!mfd->panel_power_on) {
+#ifndef CONFIG_ARCH_ACER_MSM8960
 			msleep(16);
+#endif
 			ret = pdata->on(mfd->pdev);
 			if (ret == 0) {
 				mfd->panel_power_on = TRUE;
@@ -904,9 +930,12 @@ static int msm_fb_blank_sub(int blank_mode, struct fb_info *info,
 			mfd->op_enable = FALSE;
 			curr_pwr_state = mfd->panel_power_on;
 			mfd->panel_power_on = FALSE;
+			cancel_delayed_work_sync(&mfd->backlight_worker);
 			bl_updated = 0;
 
+#ifndef CONFIG_ARCH_ACER_MSM8960
 			msleep(16);
+#endif
 			ret = pdata->off(mfd->pdev);
 			if (ret)
 				mfd->panel_power_on = curr_pwr_state;
@@ -1151,6 +1180,11 @@ static int msm_fb_register(struct msm_fb_data_type *mfd)
 	var->sync = 0,	/* see FB_SYNC_* */
 	var->rotate = 0,	/* angle we rotate counter clockwise */
 	mfd->op_enable = FALSE;
+
+	if (panel_info->aa_height && panel_info->aa_width) {
+		var->height = panel_info->aa_height;
+		var->width = panel_info->aa_width;
+	}
 
 	switch (mfd->fb_imgType) {
 	case MDP_RGB_565:
@@ -1469,9 +1503,26 @@ static int msm_fb_register(struct msm_fb_data_type *mfd)
 	     mfd->index, fbi->var.xres, fbi->var.yres, fbi->fix.smem_len);
 
 #ifdef CONFIG_FB_MSM_LOGO
+#if !defined(CONFIG_MACH_ACER_A9)
 	/* Flip buffer */
 	if (!load_565rle_image(INIT_IMAGE_FILE, bf_supported))
 		;
+#else
+	if (((mfd->panel_info.type == MIPI_VIDEO_PANEL) ||
+		(mfd->panel_info.type == MIPI_CMD_PANEL)) &&
+		(acer_boot_mode == NORMAL_BOOT)) {
+		if (!load_565rle_image(INIT_IMAGE_FILE, bf_supported)) {
+			pr_info("Show Booting Logo..\n");
+
+			mdp_set_dma_pan_info(mfd->fbi, NULL, TRUE);
+			msm_fb_blank_sub(FB_BLANK_UNBLANK, mfd->fbi, mfd->op_enable);
+			msm_fb_set_backlight(mfd, 128);
+			load_565rle_image(INIT_IMAGE_FILE, bf_supported);
+			msm_fb_pan_display(var, mfd->fbi);
+			mfd->fbi->var.yoffset = var->yres;
+		}
+	}
+#endif //!defined(CONFIG_MACH_ACER_A9)
 #endif
 	ret = 0;
 
@@ -1676,13 +1727,28 @@ static int msm_fb_release(struct fb_info *info, int user)
 
 DEFINE_SEMAPHORE(msm_fb_pan_sem);
 
+static void bl_workqueue_handler(struct work_struct *work)
+{
+	struct msm_fb_data_type *mfd = container_of(to_delayed_work(work),
+				struct msm_fb_data_type, backlight_worker);
+	struct msm_fb_panel_data *pdata = mfd->pdev->dev.platform_data;
+
+	if ((pdata) && (pdata->set_backlight) && (!bl_updated)) {
+		down(&mfd->sem);
+		mfd->bl_level = unset_bl_level;
+		pdata->set_backlight(mfd);
+		bl_level_old = unset_bl_level;
+		bl_updated = 1;
+		up(&mfd->sem);
+	}
+}
+
 static int msm_fb_pan_display(struct fb_var_screeninfo *var,
 			      struct fb_info *info)
 {
 	struct mdp_dirty_region dirty;
 	struct mdp_dirty_region *dirtyPtr = NULL;
 	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)info->par;
-	struct msm_fb_panel_data *pdata;
 
 	/*
 	 * If framebuffer is 2, io pen display is not allowed.
@@ -1702,6 +1768,11 @@ static int msm_fb_pan_display(struct fb_var_screeninfo *var,
 
 	if (var->yoffset > (info->var.yres_virtual - info->var.yres))
 		return -EINVAL;
+
+#ifdef CONFIG_FB_MSM_MIPI_DSI_HIMAX
+	if (!bl_updated)
+		panel_need_wait();
+#endif
 
 	if (info->fix.xpanstep)
 		info->var.xoffset =
@@ -1759,6 +1830,9 @@ static int msm_fb_pan_display(struct fb_var_screeninfo *var,
 		mdp_set_dma_pan_info(info, NULL, TRUE);
 		if (msm_fb_blank_sub(FB_BLANK_UNBLANK, info, mfd->op_enable)) {
 			pr_err("%s: can't turn on display!\n", __func__);
+#ifdef CONFIG_MACH_ACER_A9
+			up(&msm_fb_pan_sem);
+#endif
 			return -EINVAL;
 		}
 	}
@@ -1768,18 +1842,9 @@ static int msm_fb_pan_display(struct fb_var_screeninfo *var,
 	mdp_dma_pan_update(info);
 	up(&msm_fb_pan_sem);
 
-	if (unset_bl_level && !bl_updated) {
-		pdata = (struct msm_fb_panel_data *)mfd->pdev->
-			dev.platform_data;
-		if ((pdata) && (pdata->set_backlight)) {
-			down(&mfd->sem);
-			mfd->bl_level = unset_bl_level;
-			pdata->set_backlight(mfd);
-			bl_level_old = unset_bl_level;
-			up(&mfd->sem);
-			bl_updated = 1;
-		}
-	}
+	if (unset_bl_level && !bl_updated)
+		schedule_delayed_work(&mfd->backlight_worker,
+				backlight_duration);
 
 	++mfd->panel_info.frame_count;
 	return 0;
@@ -2915,12 +2980,24 @@ static int msmfb_overlay_play_wait(struct fb_info *info, unsigned long *argp)
 	return ret;
 }
 
+static int msmfb_overlay_commit(struct fb_info *info, unsigned long *argp)
+{
+	int ret, ndx;
+
+	ret = copy_from_user(&ndx, argp, sizeof(ndx));
+	if (ret) {
+		pr_err("%s: ioctl failed\n", __func__);
+		return ret;
+	}
+
+	return mdp4_overlay_commit(info, ndx);
+}
+
 static int msmfb_overlay_play(struct fb_info *info, unsigned long *argp)
 {
 	int	ret;
 	struct msmfb_overlay_data req;
 	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)info->par;
-	struct msm_fb_panel_data *pdata;
 
 	if (mfd->overlay_play_enable == 0)	/* nothing to do */
 		return 0;
@@ -2932,6 +3009,10 @@ static int msmfb_overlay_play(struct fb_info *info, unsigned long *argp)
 		return ret;
 	}
 
+#ifdef CONFIG_FB_MSM_MIPI_DSI_HIMAX
+	if (!bl_updated)
+		panel_need_wait();
+#endif
 	complete(&mfd->msmfb_update_notify);
 	mutex_lock(&msm_fb_notify_update_sem);
 	if (mfd->msmfb_no_update_notify_timer.function)
@@ -2951,18 +3032,9 @@ static int msmfb_overlay_play(struct fb_info *info, unsigned long *argp)
 
 	ret = mdp4_overlay_play(info, &req);
 
-	if (unset_bl_level && !bl_updated) {
-		pdata = (struct msm_fb_panel_data *)mfd->pdev->
-			dev.platform_data;
-		if ((pdata) && (pdata->set_backlight)) {
-			down(&mfd->sem);
-			mfd->bl_level = unset_bl_level;
-			pdata->set_backlight(mfd);
-			bl_level_old = unset_bl_level;
-			up(&mfd->sem);
-			bl_updated = 1;
-		}
-	}
+	if (unset_bl_level && !bl_updated)
+		schedule_delayed_work(&mfd->backlight_worker,
+				backlight_duration);
 
 	return ret;
 }
@@ -3310,49 +3382,36 @@ static int msm_fb_ioctl(struct fb_info *info, unsigned int cmd,
 	switch (cmd) {
 #ifdef CONFIG_FB_MSM_OVERLAY
 	case MSMFB_OVERLAY_GET:
-		down(&msm_fb_ioctl_ppp_sem);
 		ret = msmfb_overlay_get(info, argp);
-		up(&msm_fb_ioctl_ppp_sem);
 		break;
 	case MSMFB_OVERLAY_SET:
-		down(&msm_fb_ioctl_ppp_sem);
 		ret = msmfb_overlay_set(info, argp);
-		up(&msm_fb_ioctl_ppp_sem);
 		break;
 	case MSMFB_OVERLAY_UNSET:
-		down(&msm_fb_ioctl_ppp_sem);
 		ret = msmfb_overlay_unset(info, argp);
+		break;
+	case MSMFB_OVERLAY_COMMIT:
+		down(&msm_fb_ioctl_ppp_sem);
+		ret = msmfb_overlay_commit(info, argp);
 		up(&msm_fb_ioctl_ppp_sem);
 		break;
 	case MSMFB_OVERLAY_PLAY:
-		down(&msm_fb_ioctl_ppp_sem);
 		ret = msmfb_overlay_play(info, argp);
-		up(&msm_fb_ioctl_ppp_sem);
 		break;
 	case MSMFB_OVERLAY_PLAY_ENABLE:
-		down(&msm_fb_ioctl_ppp_sem);
 		ret = msmfb_overlay_play_enable(info, argp);
-		up(&msm_fb_ioctl_ppp_sem);
 		break;
 	case MSMFB_OVERLAY_PLAY_WAIT:
-		down(&msm_fb_ioctl_ppp_sem);
 		ret = msmfb_overlay_play_wait(info, argp);
-		up(&msm_fb_ioctl_ppp_sem);
 		break;
 	case MSMFB_OVERLAY_BLT:
-		down(&msm_fb_ioctl_ppp_sem);
 		ret = msmfb_overlay_blt(info, argp);
-		up(&msm_fb_ioctl_ppp_sem);
 		break;
 	case MSMFB_OVERLAY_3D:
-		down(&msm_fb_ioctl_ppp_sem);
 		ret = msmfb_overlay_3d_sbys(info, argp);
-		up(&msm_fb_ioctl_ppp_sem);
 		break;
 	case MSMFB_MIXER_INFO:
-		down(&msm_fb_ioctl_ppp_sem);
 		ret = msmfb_mixer_info(info, argp);
-		up(&msm_fb_ioctl_ppp_sem);
 		break;
 	case MSMFB_WRITEBACK_INIT:
 		ret = msmfb_overlay_ioctl_writeback_init(info);

@@ -454,11 +454,11 @@ static int set_limited_discoverable(struct sock *sk, u16 index,
 
 	cp = (void *) data;
 
-	BT_DBG("hci%u discoverable: %d", index, cp->val);
-
 	if (!cp || len != sizeof(*cp))
 		return cmd_status(sk, index, MGMT_OP_SET_LIMIT_DISCOVERABLE,
 									EINVAL);
+	else
+		BT_DBG("hci%u discoverable: %d", index, cp->val);
 
 	hdev = hci_dev_get(index);
 	if (!hdev)

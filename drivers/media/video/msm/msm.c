@@ -1907,7 +1907,13 @@ static int msm_open(struct file *f)
 	D("%s use_count %d\n", __func__, pcam->use_count);
 	if (pcam->use_count == 1) {
 		int ges_evt = MSM_V4L2_GES_CAM_OPEN;
+#ifndef CONFIG_MACH_ACER_A9
+		// The variable is re-declared.
+		// It will override the scope of the one declared outside the block.
+		// So the variable's change here is invisible in the region of label
+		// msm_cam_server_open_session_failed.
 		struct msm_cam_server_queue *queue;
+#endif
 		server_q_idx = msm_find_free_queue();
 		if (server_q_idx < 0)
 			return server_q_idx;

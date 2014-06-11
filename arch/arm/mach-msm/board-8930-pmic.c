@@ -207,6 +207,7 @@ static int pm8921_therm_mitigation[] = {
 };
 
 #define MAX_VOLTAGE_MV		4200
+#define CHG_TERM_MA		100
 static struct pm8921_charger_platform_data pm8921_chg_pdata __devinitdata = {
 	.safety_time		= 180,
 	.update_time		= 60000,
@@ -214,7 +215,7 @@ static struct pm8921_charger_platform_data pm8921_chg_pdata __devinitdata = {
 	.min_voltage		= 3200,
 	.uvd_thresh_voltage	= 4050,
 	.resume_voltage_delta	= 100,
-	.term_current		= 100,
+	.term_current		= CHG_TERM_MA,
 	.cool_temp		= 10,
 	.warm_temp		= 40,
 	.temp_check_period	= 1,
@@ -335,16 +336,32 @@ static struct pm8xxx_misc_platform_data pm8xxx_misc_pdata = {
 	.priority		= 0,
 };
 
+/*
+ *	0x254=0xC8 (Threshold=110, preamp bias=01)
+ *	0x255=0xC1 (Hold=110, max attn=0000, mute=1)
+ *	0x256=0xB0 (decay=101, attack=10, delay=0)
+ */
+
 static struct pm8xxx_spk_platform_data pm8xxx_spk_pdata = {
 	.spk_add_enable		= false,
+	.cd_ng_threshold	= 0x6,
+	.cd_nf_preamp_bias	= 0x1,
+	.cd_ng_hold		= 0x6,
+	.cd_ng_max_atten	= 0x0,
+	.noise_mute		= 1,
+	.cd_ng_decay_rate	= 0x5,
+	.cd_ng_attack_rate	= 0x2,
+	.cd_delay		= 0x0,
 };
 
 static struct pm8921_bms_platform_data pm8921_bms_pdata __devinitdata = {
-	.battery_type	= BATT_UNKNOWN,
-	.r_sense		= 10,
-	.i_test			= 2500,
-	.v_failure		= 3000,
-	.max_voltage_uv		= MAX_VOLTAGE_MV * 1000,
+	.battery_type			= BATT_UNKNOWN,
+	.r_sense			= 10,
+	.v_cutoff			= 3400,
+	.max_voltage_uv			= MAX_VOLTAGE_MV * 1000,
+	.shutdown_soc_valid_limit	= 20,
+	.adjust_soc_low_threshold	= 25,
+	.chg_term_ua			= CHG_TERM_MA * 1000,
 };
 
 static struct pm8038_platform_data pm8038_platform_data __devinitdata = {
@@ -378,8 +395,8 @@ void __init msm8930_init_pmic(void)
 				&msm8930_ssbi_pm8038_pdata;
 	pm8038_platform_data.num_regulators
 		= msm8930_pm8038_regulator_pdata_len;
-	if (machine_is_apq8064_mtp())
+	if (machine_is_msm8930_mtp())
 		pm8921_bms_pdata.battery_type = BATT_PALLADIUM;
-	else if (machine_is_apq8064_liquid())
-		pm8921_bms_pdata.battery_type = BATT_DESAY;
+	else if (machine_is_msm8930_cdp())
+		pm8921_chg_pdata.has_dc_supply = true;
 }

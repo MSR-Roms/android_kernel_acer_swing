@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2012, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -26,7 +26,13 @@
 #define PON_CNTL_1 0x1C
 #define PON_CNTL_PULL_UP BIT(7)
 #define PON_CNTL_TRIG_DELAY_MASK (0x7)
-
+#ifdef CONFIG_ARCH_ACER_MSM8960
+static int wakeup_by_powerkey = 0;
+int is_wakeup_by_powerkey(void)
+{
+	return wakeup_by_powerkey;
+}
+#endif
 /**
  * struct pmic8xxx_pwrkey - pmic8xxx pwrkey information
  * @key_press_irq: key press irq number
@@ -35,12 +41,27 @@
 struct pmic8xxx_pwrkey {
 	struct input_dev *pwr;
 	int key_press_irq;
+	int key_release_irq;
+	bool press;
 	const struct pm8xxx_pwrkey_platform_data *pdata;
 };
 
 static irqreturn_t pwrkey_press_irq(int irq, void *_pwrkey)
 {
 	struct pmic8xxx_pwrkey *pwrkey = _pwrkey;
+
+#ifdef CONFIG_ARCH_ACER_MSM8960
+	pr_info("%s: button->code = %d, state = 1\n", __func__, KEY_POWER);
+
+	if (!wakeup_by_powerkey)
+		wakeup_by_powerkey = 1;
+#endif
+	if (pwrkey->press == true) {
+		pwrkey->press = false;
+		return IRQ_HANDLED;
+	} else {
+		pwrkey->press = true;
+	}
 
 	input_report_key(pwrkey->pwr, KEY_POWER, 1);
 	input_sync(pwrkey->pwr);
@@ -52,6 +73,16 @@ static irqreturn_t pwrkey_release_irq(int irq, void *_pwrkey)
 {
 	struct pmic8xxx_pwrkey *pwrkey = _pwrkey;
 
+#ifdef CONFIG_ARCH_ACER_MSM8960
+	pr_info("%s: button->code = %d, state = 0\n", __func__, KEY_POWER);
+#endif
+	if (pwrkey->press == false) {
+		input_report_key(pwrkey->pwr, KEY_POWER, 1);
+		input_sync(pwrkey->pwr);
+	} else {
+		pwrkey->press = false;
+	}
+
 	input_report_key(pwrkey->pwr, KEY_POWER, 0);
 	input_sync(pwrkey->pwr);
 
@@ -62,9 +93,13 @@ static irqreturn_t pwrkey_release_irq(int irq, void *_pwrkey)
 static int pmic8xxx_pwrkey_suspend(struct device *dev)
 {
 	struct pmic8xxx_pwrkey *pwrkey = dev_get_drvdata(dev);
-
-	if (device_may_wakeup(dev))
+#ifdef CONFIG_ARCH_ACER_MSM8960
+	wakeup_by_powerkey = 0;
+#endif
+	if (device_may_wakeup(dev)) {
 		enable_irq_wake(pwrkey->key_press_irq);
+		enable_irq_wake(pwrkey->key_release_irq);
+	}
 
 	return 0;
 }
@@ -73,8 +108,10 @@ static int pmic8xxx_pwrkey_resume(struct device *dev)
 {
 	struct pmic8xxx_pwrkey *pwrkey = dev_get_drvdata(dev);
 
-	if (device_may_wakeup(dev))
+	if (device_may_wakeup(dev)) {
 		disable_irq_wake(pwrkey->key_press_irq);
+		disable_irq_wake(pwrkey->key_release_irq);
+	}
 
 	return 0;
 }
@@ -155,7 +192,9 @@ static int __devinit pmic8xxx_pwrkey_probe(struct platform_device *pdev)
 	}
 
 	pwrkey->key_press_irq = key_press_irq;
+	pwrkey->key_release_irq = key_release_irq;
 	pwrkey->pwr = pwr;
+	pwrkey->press = false;
 
 	platform_set_drvdata(pdev, pwrkey);
 

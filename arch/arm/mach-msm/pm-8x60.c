@@ -28,6 +28,9 @@
 #include <mach/msm_iomap.h>
 #include <mach/socinfo.h>
 #include <mach/system.h>
+#include <mach/scm.h>
+#include <mach/socinfo.h>
+#include <mach/msm-krait-l2-accessors.h>
 #include <asm/cacheflush.h>
 #include <asm/hardware/gic.h>
 #include <asm/pgtable.h>
@@ -35,6 +38,12 @@
 #include <asm/hardware/cache-l2x0.h>
 #ifdef CONFIG_VFP
 #include <asm/vfp.h>
+#endif
+#ifdef CONFIG_ARCH_ACER_MSM8960
+#include <mach/gpio.h>
+#include <mach/rpm.h>
+#include <linux/mfd/pm8xxx/mpp.h>
+#include <linux/mfd/pm8xxx/gpio.h>
 #endif
 
 #include "acpuclock.h"
@@ -106,6 +115,10 @@ static char *msm_pm_sleep_mode_labels[MSM_PM_SLEEP_MODE_NR] = {
 	[MSM_PM_SLEEP_MODE_POWER_COLLAPSE_STANDALONE] =
 		"standalone_power_collapse",
 };
+
+#if defined(CONFIG_ARCH_ACER_MSM8960)
+void debug_dump_XO_status(void);
+#endif
 
 static struct msm_pm_sleep_ops pm_sleep_ops;
 /*
@@ -391,10 +404,63 @@ void msm_pm_set_max_sleep_time(int64_t max_sleep_time_ns)
 }
 EXPORT_SYMBOL(msm_pm_set_max_sleep_time);
 
+struct reg_data {
+	uint32_t reg;
+	uint32_t val;
+};
 
-/******************************************************************************
- *
- *****************************************************************************/
+static struct reg_data reg_saved_state[] = {
+	{ .reg = 0x4501, },
+	{ .reg = 0x5501, },
+	{ .reg = 0x6501, },
+	{ .reg = 0x7501, },
+	{ .reg = 0x0500, },
+};
+
+static unsigned int active_vdd;
+static bool msm_pm_save_cp15;
+static const unsigned int pc_vdd = 0x98;
+
+static void msm_pm_save_cpu_reg(void)
+{
+	int i;
+
+	/* Only on core0 */
+	if (smp_processor_id())
+		return;
+
+	/**
+	 * On some targets, L2 PC will turn off may reset the core
+	 * configuration for the mux and the default may not make the core
+	 * happy when it resumes.
+	 * Save the active vdd, and set the core vdd to QSB max vdd, so that
+	 * when the core resumes, it is capable of supporting the current QSB
+	 * rate. Then restore the active vdd before switching the acpuclk rate.
+	 */
+	if (msm_pm_get_l2_flush_flag() == 1) {
+		active_vdd = msm_spm_get_vdd(0);
+		for (i = 0; i < ARRAY_SIZE(reg_saved_state); i++)
+			reg_saved_state[i].val =
+				get_l2_indirect_reg(reg_saved_state[i].reg);
+		msm_spm_set_vdd(0, pc_vdd);
+	}
+}
+
+static void msm_pm_restore_cpu_reg(void)
+{
+	int i;
+
+	/* Only on core0 */
+	if (smp_processor_id())
+		return;
+
+	if (msm_pm_get_l2_flush_flag() == 1) {
+		for (i = 0; i < ARRAY_SIZE(reg_saved_state); i++)
+			set_l2_indirect_reg(reg_saved_state[i].reg,
+					reg_saved_state[i].val);
+		msm_spm_set_vdd(0, active_vdd);
+	}
+}
 
 static void *msm_pm_idle_rs_limits;
 static bool msm_pm_use_qtimer;
@@ -489,6 +555,9 @@ static bool __ref msm_pm_spm_power_collapse(
 
 	ret = msm_spm_set_low_power_mode(MSM_SPM_MODE_CLOCK_GATING, false);
 	WARN_ON(ret);
+#ifdef CONFIG_MSM_RTB
+	uncached_logk(LOGK_READL, (void *)(collapsed));
+#endif
 	return collapsed;
 }
 
@@ -532,7 +601,13 @@ static bool msm_pm_power_collapse(bool from_idle)
 		pr_info("CPU%u: %s: change clock rate (old rate = %lu)\n",
 			cpu, __func__, saved_acpuclk_rate);
 
+	if (msm_pm_save_cp15)
+		msm_pm_save_cpu_reg();
+
 	collapsed = msm_pm_spm_power_collapse(cpu, from_idle, true);
+
+	if (msm_pm_save_cp15)
+		msm_pm_restore_cpu_reg();
 
 	if (cpu_online(cpu)) {
 		if (MSM_PM_DEBUG_CLOCK & msm_pm_debug_mask)
@@ -567,9 +642,12 @@ static bool msm_pm_power_collapse(bool from_idle)
 	return collapsed;
 }
 
-static void msm_pm_qtimer_available(void)
+static void msm_pm_target_init(void)
 {
-	if (machine_is_msm8974())
+	if (cpu_is_apq8064())
+		msm_pm_save_cp15 = true;
+
+	if (cpu_is_msm8974())
 		msm_pm_use_qtimer = true;
 }
 
@@ -744,6 +822,9 @@ int msm_pm_idle_enter(enum msm_pm_sleep_mode sleep_mode)
 		break;
 
 	case MSM_PM_SLEEP_MODE_POWER_COLLAPSE_STANDALONE:
+#ifdef CONFIG_MSM_RTB
+		uncached_logk(LOGK_READL, (void *)(sleep_mode));
+#endif
 		msm_pm_power_collapse_standalone(true);
 		exit_stat = MSM_PM_STAT_IDLE_STANDALONE_POWER_COLLAPSE;
 		break;
@@ -756,7 +837,9 @@ int msm_pm_idle_enter(enum msm_pm_sleep_mode sleep_mode)
 		int notify_rpm =
 			(sleep_mode == MSM_PM_SLEEP_MODE_POWER_COLLAPSE);
 		int collapsed;
-
+#ifdef CONFIG_MSM_RTB
+		uncached_logk(LOGK_READL, (void *)(sleep_mode));
+#endif
 		timer_expiration = msm_pm_timer_enter_idle();
 
 		sleep_delay = (uint32_t) msm_pm_convert_and_cap_time(
@@ -881,6 +964,39 @@ int msm_pm_wait_cpu_shutdown(unsigned int cpu)
 	return -EBUSY;
 }
 
+#ifdef CONFIG_ARCH_ACER_MSM8960
+static void dump_subsystem_status(bool is_suspend)
+{
+	int ret;
+	struct msm_rpm_iv_pair status[6];
+	char *suspend_state = is_suspend ? "suspend" : "resume";
+
+	status[0].id = MSM_RPM_STATUS_ID_IN_ACTIVE_CORES;
+	status[1].id = MSM_RPM_STATUS_ID_CORE0_SLEEP_COUNT;
+	status[2].id = MSM_RPM_STATUS_ID_CORE1_SLEEP_COUNT;
+	status[3].id = MSM_RPM_STATUS_ID_CORE2_SLEEP_COUNT;
+	status[4].id = MSM_RPM_STATUS_ID_CORE3_SLEEP_COUNT;
+	status[5].id = MSM_RPM_STATUS_ID_CORE4_SLEEP_COUNT;
+
+	ret = msm_rpm_get_status(status, 6);
+	if (ret < 0) {
+		pr_err("get sub-system status failed");
+		return;
+	}
+
+	pr_info("[%s] APSS %s, count = %d", suspend_state,
+		(status[0].value&(0x1<<0))?"active":"inactive", status[1].value);
+	pr_info("[%s] MPSS %s, count = %d", suspend_state,
+		(status[0].value&(0x1<<1))?"active":"inactive", status[2].value);
+	pr_info("[%s] LPASS %s, count = %d", suspend_state,
+		(status[0].value&(0x1<<2))?"active":"inactive", status[3].value);
+	pr_info("[%s] RIVA %s, count = %d", suspend_state,
+		(status[0].value&(0x1<<3))?"active":"inactive", status[4].value);
+	pr_info("[%s] DSPS %s, count = %d", suspend_state,
+		(status[0].value&(0x1<<4))?"active":"inactive", status[5].value);
+}
+#endif
+
 static int msm_pm_enter(suspend_state_t state)
 {
 	bool allow[MSM_PM_SLEEP_MODE_NR];
@@ -927,6 +1043,14 @@ static int msm_pm_enter(suspend_state_t state)
 					MSM_PM_SLEEP_MODE_POWER_COLLAPSE, -1,
 					-1, &power);
 
+#ifdef CONFIG_ARCH_ACER_MSM8960
+		save_msm_gpio_sleep_state();
+		save_pmic_gpio_sleep_state();
+		save_pmic_mpp_sleep_state();
+		debug_dump_XO_status();
+		dump_subsystem_status(true);
+#endif
+
 		if (rs_limits) {
 			if (pm_sleep_ops.enter_sleep)
 				ret = pm_sleep_ops.enter_sleep(
@@ -943,6 +1067,12 @@ static int msm_pm_enter(suspend_state_t state)
 			pr_err("%s: cannot find the lowest power limit\n",
 				__func__);
 		}
+
+#ifdef CONFIG_ARCH_ACER_MSM8960
+		dump_subsystem_status(false);
+		restore_msm_gpio_state();
+#endif
+
 		time = msm_pm_timer_exit_suspend(time, period);
 		msm_pm_add_stat(MSM_PM_STAT_SUSPEND, time);
 	} else if (allow[MSM_PM_SLEEP_MODE_POWER_COLLAPSE_STANDALONE]) {
@@ -1042,7 +1172,7 @@ static int __init msm_pm_init(void)
 	msm_pm_add_stats(enable_stats, ARRAY_SIZE(enable_stats));
 
 	suspend_set_ops(&msm_pm_ops);
-	msm_pm_qtimer_available();
+	msm_pm_target_init();
 	msm_cpuidle_init();
 
 	return 0;

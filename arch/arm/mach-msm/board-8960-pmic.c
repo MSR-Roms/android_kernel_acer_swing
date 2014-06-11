@@ -413,6 +413,7 @@ static int pm8921_therm_mitigation[] = {
 };
 
 #define MAX_VOLTAGE_MV		4200
+#define CHG_TERM_MA		100
 static struct pm8921_charger_platform_data pm8921_chg_pdata __devinitdata = {
 	.safety_time		= 180,
 	.update_time		= 60000,
@@ -420,7 +421,7 @@ static struct pm8921_charger_platform_data pm8921_chg_pdata __devinitdata = {
 	.min_voltage		= 3200,
 	.uvd_thresh_voltage	= 4050,
 	.resume_voltage_delta	= 100,
-	.term_current		= 100,
+	.term_current		= CHG_TERM_MA,
 	.cool_temp		= 10,
 	.warm_temp		= 40,
 	.temp_check_period	= 1,
@@ -439,12 +440,14 @@ static struct pm8xxx_misc_platform_data pm8xxx_misc_pdata = {
 };
 
 static struct pm8921_bms_platform_data pm8921_bms_pdata __devinitdata = {
-	.battery_type	= BATT_UNKNOWN,
-	.r_sense		= 10,
-	.i_test			= 2500,
-	.v_failure		= 3000,
-	.max_voltage_uv		= MAX_VOLTAGE_MV * 1000,
-	.rconn_mohm		= 18,
+	.battery_type			= BATT_UNKNOWN,
+	.r_sense			= 10,
+	.v_cutoff			= 3400,
+	.max_voltage_uv			= MAX_VOLTAGE_MV * 1000,
+	.rconn_mohm			= 18,
+	.shutdown_soc_valid_limit	= 20,
+	.adjust_soc_low_threshold	= 25,
+	.chg_term_ua			= CHG_TERM_MA * 1000,
 };
 
 #define	PM8921_LC_LED_MAX_CURRENT	4	/* I = 4mA */
@@ -623,6 +626,8 @@ void __init msm8960_init_pmic(void)
 		pm8921_platform_data.bms_pdata->battery_type = BATT_DESAY;
 	} else if (machine_is_msm8960_mtp()) {
 		pm8921_platform_data.bms_pdata->battery_type = BATT_PALLADIUM;
+	} else if (machine_is_msm8960_cdp()) {
+		pm8921_chg_pdata.has_dc_supply = true;
 	}
 
 	if (machine_is_msm8960_fluid())

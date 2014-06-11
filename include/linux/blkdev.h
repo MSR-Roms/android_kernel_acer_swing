@@ -249,6 +249,9 @@ struct queue_limits {
 
 	unsigned int		max_hw_sectors;
 	unsigned int		max_sectors;
+#ifdef CONFIG_MACH_ACER_A9
+	unsigned int		max_write_sectors;
+#endif
 	unsigned int		max_segment_size;
 	unsigned int		physical_block_size;
 	unsigned int		alignment_offset;
@@ -827,6 +830,9 @@ extern void blk_queue_make_request(struct request_queue *, make_request_fn *);
 extern void blk_queue_bounce_limit(struct request_queue *, u64);
 extern void blk_limits_max_hw_sectors(struct queue_limits *, unsigned int);
 extern void blk_queue_max_hw_sectors(struct request_queue *, unsigned int);
+#ifdef CONFIG_MACH_ACER_A9
+extern void blk_queue_max_write_sectors(struct request_queue *, unsigned int);
+#endif
 extern void blk_queue_max_segments(struct request_queue *, unsigned short);
 extern void blk_queue_max_segment_size(struct request_queue *, unsigned int);
 extern void blk_queue_max_discard_sectors(struct request_queue *q,
@@ -1000,6 +1006,13 @@ static inline unsigned int queue_max_sectors(struct request_queue *q)
 {
 	return q->limits.max_sectors;
 }
+
+#ifdef CONFIG_MACH_ACER_A9
+static inline unsigned int queue_max_write_sectors(struct request_queue *q)
+{
+	return q->limits.max_write_sectors;
+}
+#endif
 
 static inline unsigned int queue_max_hw_sectors(struct request_queue *q)
 {

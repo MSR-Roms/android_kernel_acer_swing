@@ -45,6 +45,28 @@
 #define ALL_SSID		-1
 #define MAX_SSID_PER_RANGE	100
 
+#ifdef CONFIG_MACH_ACER_A9
+#include <linux/mfd/pm8xxx/pm8921-charger.h>
+#include <linux/power_supply.h>
+#define FAST_CHG_DISSABLE       "CCACERFASTCHARGING00"
+#define FAST_CHG_ENABLE         "CCACERFASTCHARGING01"
+#define BATT_INFO_REPORT        "CCACERFASTCHARGING02"
+#define FAST_CHG_CURRENT        1000
+#define USB_CHG_CURRENT         500
+#define FAST_CHG_CMD_LEN        23
+extern int pm8921_get_percent_soc(void);
+int fast_charging_mode = 0;
+#endif
+
+#ifdef CONFIG_DIAG_LOCK
+#define PWD_LEN                32
+static char *unlock_pwd = "acer.llxdiafkZidf#$i1234(@01xdiP";
+static char *lock_pwd =   "acer.dfzse,eizdfXD3#($%)@dxiexAA";
+static int diag_lock = 1;
+int debug_mode_enable = 0;
+#endif
+
+
 int diag_debug_buf_idx;
 unsigned char diag_debug_buf[1024];
 static unsigned int buf_tbl_size = 8; /*Number of entries in table of buffers */
@@ -64,6 +86,9 @@ struct mask_info {
 do {									\
 	*(int *)(msg_mask_tbl_ptr) = MSG_SSID_ ## XX;			\
 	msg_mask_tbl_ptr += 4;						\
+	*(int *)(msg_mask_tbl_ptr) = MSG_SSID_ ## XX ## _LAST;		\
+	msg_mask_tbl_ptr += 4;						\
+	/* mimic the last entry as actual_last while creation */	\
 	*(int *)(msg_mask_tbl_ptr) = MSG_SSID_ ## XX ## _LAST;		\
 	msg_mask_tbl_ptr += 4;						\
 	/* increment by MAX_SSID_PER_RANGE cells */			\
@@ -92,6 +117,24 @@ do {									\
 
 #define CHK_OVERFLOW(bufStart, start, end, length) \
 ((bufStart <= start) && (end - start >= length)) ? 1 : 0
+
+#ifdef CONFIG_DIAG_LOCK
+static void try_to_unlock(unsigned char *cmd, int length)
+{
+       if (strncmp(cmd, unlock_pwd, PWD_LEN) == 0)
+               diag_lock = 0;
+
+       printk(KERN_INFO "try_to_unlock, diag_lock: %d\n", diag_lock);
+}
+
+static void try_to_lock(unsigned char *cmd, int length)
+{
+       if (strncmp(cmd, lock_pwd, PWD_LEN) == 0)
+               diag_lock = 1;
+
+       printk(KERN_INFO "try_to_lock, diag_lock: %d\n", diag_lock);
+}
+#endif
 
 /* Determine if this device uses a device tree */
 #ifdef CONFIG_OF
@@ -274,8 +317,14 @@ void __diag_smd_send_req(void)
 				APPEND_DEBUG('j');
 				write_ptr_modem->length = r;
 				*in_busy_ptr = 1;
+#ifdef CONFIG_DIAG_LOCK
+                               if (!diag_lock || debug_mode_enable)
+                                       diag_device_write(buf, MODEM_DATA,
+                                                       write_ptr_modem);
+#else
 				diag_device_write(buf, MODEM_DATA,
 							 write_ptr_modem);
+#endif
 			}
 		}
 	} else if (driver->ch && !buf &&
@@ -304,6 +353,26 @@ int diag_device_write(void *buf, int proc_num, struct diag_request *write_ptr)
 					break;
 				}
 		}
+
+#ifdef CONFIG_DIAG_BRIDGE_CODE
+		else if (proc_num == HSIC_DATA) {
+			for (i = 0; i < driver->poolsize_hsic_write; i++) {
+				if (driver->hsic_buf_tbl[i].length == 0) {
+					driver->hsic_buf_tbl[i].buf = buf;
+					driver->hsic_buf_tbl[i].length =
+							driver->write_len_mdm;
+					driver->num_hsic_buf_tbl_entries++;
+#ifdef DIAG_DEBUG
+					pr_debug("diag: ENQUEUE HSIC buf ptr and length is %x , %d\n",
+						(unsigned int)
+						(driver->hsic_buf_tbl[i].buf),
+						driver->hsic_buf_tbl[i].length);
+#endif
+					break;
+				}
+			}
+		}
+#endif
 		for (i = 0; i < driver->num_clients; i++)
 			if (driver->client_map[i].pid ==
 						 driver->logging_process_id)
@@ -340,8 +409,6 @@ int diag_device_write(void *buf, int proc_num, struct diag_request *write_ptr)
 #endif
 #ifdef CONFIG_DIAG_BRIDGE_CODE
 		else if (proc_num == HSIC_DATA) {
-			driver->in_busy_hsic_read = 0;
-			driver->in_busy_hsic_write_on_device = 0;
 			if (driver->hsic_ch)
 				queue_work(driver->diag_bridge_wq,
 					&(driver->diag_read_hsic_work));
@@ -393,11 +460,33 @@ int diag_device_write(void *buf, int proc_num, struct diag_request *write_ptr)
 #ifdef CONFIG_DIAG_BRIDGE_CODE
 		else if (proc_num == HSIC_DATA) {
 			if (driver->hsic_device_enabled) {
-				write_ptr->buf = buf;
-				err = usb_diag_write(driver->mdm_ch, write_ptr);
-			} else
+				struct diag_request *write_ptr_mdm;
+				write_ptr_mdm = (struct diag_request *)
+						diagmem_alloc(driver,
+						sizeof(struct diag_request),
+							POOL_TYPE_HSIC_WRITE);
+				if (write_ptr_mdm) {
+					write_ptr_mdm->buf = buf;
+					write_ptr_mdm->length =
+						driver->write_len_mdm;
+					err = usb_diag_write(driver->mdm_ch,
+								write_ptr_mdm);
+					/* Return to the pool immediately */
+					if (err) {
+						diagmem_free(driver,
+							write_ptr_mdm,
+							POOL_TYPE_HSIC_WRITE);
+					pr_err("diag: HSIC write failure\n");
+					}
+				} else {
+					pr_err("diag: allocate write fail\n");
+					err = -1;
+				}
+			} else {
 				pr_err("diag: Incorrect hsic data "
 						"while USB write\n");
+				err = -1;
+			}
 		} else if (proc_num == SMUX_DATA) {
 				write_ptr->buf = buf;
 				pr_debug("diag: writing SMUX data\n");
@@ -495,8 +584,16 @@ void __diag_smd_qdsp_send_req(void)
 				APPEND_DEBUG('j');
 				write_ptr_qdsp->length = r;
 				*in_busy_qdsp_ptr = 1;
+#ifdef CONFIG_DIAG_LOCK
+                               if (!diag_lock || debug_mode_enable)
+                                       diag_device_write(buf, QDSP_DATA,
+                                                        write_ptr_qdsp);
+
+#else
+
 				diag_device_write(buf, QDSP_DATA,
 							 write_ptr_qdsp);
+#endif
 			}
 		}
 	} else if (driver->chqdsp && !buf &&
@@ -509,8 +606,7 @@ static void diag_print_mask_table(void)
 {
 /* Enable this to print mask table when updated */
 #ifdef MASK_DEBUG
-	int first;
-	int last;
+	int first, last, actual_last;
 	uint8_t *ptr = driver->msg_masks;
 	int i = 0;
 	pr_info("diag: F3 message mask table\n");
@@ -519,11 +615,12 @@ static void diag_print_mask_table(void)
 		ptr += 4;
 		last = *(uint32_t *)ptr;
 		ptr += 4;
-		printk(KERN_INFO "SSID %d - %d\n", first, last);
-		for (i = 0 ; i <= last - first ; i++)
-			printk(KERN_INFO "MASK:%x\n", *((uint32_t *)ptr + i));
+		actual_last = *(uint32_t *)ptr;
+		ptr += 4;
+		pr_info("diag: SSID %d, %d - %d\n", first, last, actual_last);
+		for (i = 0 ; i <= actual_last - first ; i++)
+			pr_info("diag: MASK:%x\n", *((uint32_t *)ptr + i));
 		ptr += MAX_SSID_PER_RANGE*4;
-
 	}
 #endif
 }
@@ -566,7 +663,7 @@ static void diag_set_msg_mask(int rt_mask)
 	mutex_lock(&driver->diagchar_mutex);
 	while (*(uint32_t *)(ptr + 4)) {
 		first_ssid = *(uint32_t *)ptr;
-		ptr += 4;
+		ptr += 8; /* increment by 8 to skip 'last' */
 		last_ssid = *(uint32_t *)ptr;
 		ptr += 4;
 		parse_ptr = ptr;
@@ -582,9 +679,8 @@ static void diag_set_msg_mask(int rt_mask)
 
 static void diag_update_msg_mask(int start, int end , uint8_t *buf)
 {
-	int found = 0;
-	int first;
-	int last;
+	int found = 0, first, last, actual_last;
+	uint8_t *actual_last_ptr;
 	uint8_t *ptr = driver->msg_masks;
 	uint8_t *ptr_buffer_start = &(*(driver->msg_masks));
 	uint8_t *ptr_buffer_end = &(*(driver->msg_masks)) + MSG_MASK_SIZE;
@@ -597,23 +693,23 @@ static void diag_update_msg_mask(int start, int end , uint8_t *buf)
 		ptr += 4;
 		last = *(uint32_t *)ptr;
 		ptr += 4;
-		if (start >= first && start <= last) {
+		actual_last = *(uint32_t *)ptr;
+		actual_last_ptr = ptr;
+		ptr += 4;
+		if (start >= first && start <= actual_last) {
 			ptr += (start - first)*4;
-			if (end <= last)
-				if (CHK_OVERFLOW(ptr_buffer_start, ptr,
-						  ptr_buffer_end,
-						  (((end - start)+1)*4))) {
-					pr_debug("diag: update ssid start %d,"
-						 " end %d\n", start, end);
-					memcpy(ptr, buf , ((end - start)+1)*4);
-				} else
-					printk(KERN_CRIT "Not enough"
-							 " buffer space for"
-							 " MSG_MASK\n");
-			else
-				printk(KERN_INFO "Unable to copy"
-						 " mask change\n");
-
+			if (end > actual_last) {
+				pr_info("diag: ssid range mismatch\n");
+				actual_last = end;
+				*(uint32_t *)(actual_last_ptr) = end;
+			}
+			if (CHK_OVERFLOW(ptr_buffer_start, ptr, ptr_buffer_end,
+					  (((end - start)+1)*4))) {
+				pr_debug("diag: update ssid start %d, end %d\n",
+								 start, end);
+				memcpy(ptr, buf , ((end - start)+1)*4);
+			} else
+				pr_alert("diag: Not enough space MSG_MASK\n");
 			found = 1;
 			break;
 		} else {
@@ -628,16 +724,16 @@ static void diag_update_msg_mask(int start, int end , uint8_t *buf)
 			ptr += 4;
 			memcpy(ptr, &(end), 4);
 			ptr += 4;
+			memcpy(ptr, &(end), 4); /* create actual_last entry */
+			ptr += 4;
 			pr_debug("diag: adding NEW ssid start %d, end %d\n",
 								 start, end);
 			memcpy(ptr, buf , ((end - start) + 1)*4);
 		} else
-			printk(KERN_CRIT " Not enough buffer"
-					 " space for MSG_MASK\n");
+			pr_alert("diag: Not enough buffer space for MSG_MASK\n");
 	}
 	mutex_unlock(&driver->diagchar_mutex);
 	diag_print_mask_table();
-
 }
 
 void diag_toggle_event_mask(int toggle)
@@ -913,7 +1009,7 @@ void diag_send_msg_mask_update(smd_channel_t *ch, int updated_ssid_first,
 						int updated_ssid_last, int proc)
 {
 	void *buf = driver->buf_msg_mask_update;
-	int first, last, size = -ENOMEM, retry_count = 0, timer;
+	int first, last, actual_last, size = -ENOMEM, retry_count = 0, timer;
 	int header_size = sizeof(struct diag_ctrl_msg_mask);
 	uint8_t *ptr = driver->msg_masks;
 
@@ -923,18 +1019,21 @@ void diag_send_msg_mask_update(smd_channel_t *ch, int updated_ssid_first,
 		ptr += 4;
 		last = *(uint32_t *)ptr;
 		ptr += 4;
-		if ((updated_ssid_first >= first && updated_ssid_last <= last)
-					 || (updated_ssid_first == ALL_SSID)) {
+		actual_last = *(uint32_t *)ptr;
+		ptr += 4;
+		if ((updated_ssid_first >= first && updated_ssid_last <=
+			 actual_last) || (updated_ssid_first == ALL_SSID)) {
 			/* send f3 mask update */
 			driver->msg_mask->cmd_type = DIAG_CTRL_MSG_F3_MASK;
-			driver->msg_mask->msg_mask_size = last - first + 1;
+			driver->msg_mask->msg_mask_size = actual_last -
+								 first + 1;
 			driver->msg_mask->data_len = 11 +
 					 4 * (driver->msg_mask->msg_mask_size);
 			driver->msg_mask->stream_id = 1; /* 2, if dual stream */
 			driver->msg_mask->status = 3; /* status valid mask */
 			driver->msg_mask->msg_mode = 0; /* Legcay mode */
 			driver->msg_mask->ssid_first = first;
-			driver->msg_mask->ssid_last = last;
+			driver->msg_mask->ssid_last = actual_last;
 			memcpy(buf, driver->msg_mask, header_size);
 			memcpy(buf+header_size, ptr,
 				 4 * (driver->msg_mask->msg_mask_size));
@@ -956,8 +1055,8 @@ void diag_send_msg_mask_update(smd_channel_t *ch, int updated_ssid_first,
 	 "fail %d, tried %d\n", proc, size,
 	 header_size + 4*(driver->msg_mask->msg_mask_size));
 				else
-					pr_debug("diag: sending mask update for"
-		"ssid first %d, last %d on PROC %d\n", first, last, proc);
+					pr_debug("diag: sending mask update for ssid first %d, last %d on PROC %d\n",
+						first, actual_last, proc);
 			} else
 				pr_err("diag: proc %d, ch invalid msg mask"
 						 "update\n", proc);
@@ -1049,7 +1148,7 @@ static int diag_process_apps_pkt(unsigned char *buf, int len)
 			rt_mask_ptr = driver->msg_masks;
 			while (*(uint32_t *)(rt_mask_ptr + 4)) {
 				rt_first_ssid = *(uint32_t *)rt_mask_ptr;
-				rt_mask_ptr += 4;
+				rt_mask_ptr += 8; /* +8 to skip 'last' */
 				rt_last_ssid = *(uint32_t *)rt_mask_ptr;
 				rt_mask_ptr += 4;
 				if (ssid_first == rt_first_ssid && ssid_last ==
@@ -1524,6 +1623,24 @@ void diag_process_hdlc(void *data, unsigned len)
 	hdlc.dest_idx = 0;
 	hdlc.escaping = 0;
 
+#ifdef CONFIG_DIAG_LOCK
+       /* if diag doesn't receive unlock commmand, it will return error code */
+       if (fast_charging_mode) {
+               fast_charging_mode = 0;
+               return;
+       }
+
+       if (!debug_mode_enable) {
+               if (diag_lock) {
+                       /* return error code 13 00 */
+                       driver->apps_rsp_buf[0] = 0x13;
+                       driver->apps_rsp_buf[1] = 0x00;
+                       ENCODE_RSP_AND_SEND(1);
+                       return;
+               }
+       }
+#endif
+
 	ret = diag_hdlc_decode(&hdlc);
 
 	if (ret)
@@ -1561,7 +1678,11 @@ void diag_process_hdlc(void *data, unsigned len)
 							driver->hdlc_buf)+i));
 #endif /* DIAG DEBUG */
 	/* ignore 2 bytes for CRC, one for 7E and send */
+#ifdef CONFIG_DIAG_LOCK
+        if ((driver->ch) && (ret) && (type) && (hdlc.dest_idx > 3) && ( debug_mode_enable || !diag_lock)) {
+#else
 	if ((driver->ch) && (ret) && (type) && (hdlc.dest_idx > 3)) {
+#endif
 		APPEND_DEBUG('g');
 		smd_write(driver->ch, driver->hdlc_buf, hdlc.dest_idx - 3);
 		APPEND_DEBUG('h');
@@ -1620,6 +1741,10 @@ int diagfwd_connect(void)
 int diagfwd_disconnect(void)
 {
 	printk(KERN_DEBUG "diag: USB disconnected\n");
+#ifdef CONFIG_DIAG_LOCK
+        diag_lock = 1;
+        pr_info("%s, USB disconnect, Lock diag port: %d , debug_mode_enable %d \n",__func__,diag_lock,debug_mode_enable);
+#endif
 	driver->usb_connected = 0;
 	driver->debug_flag = 1;
 	usb_diag_free_req(driver->legacy_ch);
@@ -1730,6 +1855,57 @@ int diagfwd_read_complete(struct diag_request *diag_read_ptr)
 	return 0;
 }
 
+#ifdef CONFIG_MACH_ACER_A9
+/*
+ * Acer Fast Charging Function
+ */
+void usb_fast_chg(struct usb_diag_ch *ch, unsigned char *cmd, int length)
+{
+	int capacity = -1, value;
+
+	if (strncmp(cmd, FAST_CHG_ENABLE, FAST_CHG_CMD_LEN-5) == 0) {
+		if (cmd[19] == '2') {
+			capacity = pm8921_get_percent_soc();
+
+			/* Ack code: FEDCBA2 */
+			driver->apps_rsp_buf[0] = 0x46;
+			driver->apps_rsp_buf[1] = 0x45;
+			driver->apps_rsp_buf[2] = 0x44;
+			driver->apps_rsp_buf[3] = 0x43;
+			driver->apps_rsp_buf[4] = 0x42;
+			driver->apps_rsp_buf[5] = 0x41;
+			driver->apps_rsp_buf[6] = 0x32;
+			driver->apps_rsp_buf[7] = capacity;
+			ENCODE_RSP_AND_SEND(7);
+
+		} else {
+			value = (cmd[19] == '0') ? false : true;
+
+			if (value){
+				pm8921_set_usb_power_supply_type(POWER_SUPPLY_TYPE_AFC);
+				pr_info("%s, Enable Fast Charging set to 1100mA \n",__func__);
+			}else {
+				pm8921_set_usb_power_supply_type(POWER_SUPPLY_TYPE_USB_DCP);
+				pm8921_charger_vbus_draw(USB_CHG_CURRENT);
+				pr_info("%s, Disable Fast Charging set to 500mA \n",__func__);
+
+			}
+
+			/* Ack code: FEDCBA10 */
+			driver->apps_rsp_buf[0] = 0x46;
+			driver->apps_rsp_buf[1] = 0x45;
+			driver->apps_rsp_buf[2] = 0x44;
+			driver->apps_rsp_buf[3] = 0x43;
+			driver->apps_rsp_buf[4] = 0x42;
+			driver->apps_rsp_buf[5] = 0x41;
+			driver->apps_rsp_buf[6] = 0x31;
+			driver->apps_rsp_buf[7] = 0x30;
+			ENCODE_RSP_AND_SEND(7);
+		}
+	}
+}
+
+#endif
 void diag_read_work_fn(struct work_struct *work)
 {
 	APPEND_DEBUG('d');
@@ -1741,6 +1917,26 @@ void diag_read_work_fn(struct work_struct *work)
 
 void diag_process_hdlc_fn(struct work_struct *work)
 {
+#ifdef CONFIG_DIAG_LOCK
+       /* Diag port Lock/Unlock function */
+        if (driver->read_len_legacy == (PWD_LEN + 3) && !debug_mode_enable)
+        {
+                if(diag_lock)
+                        try_to_unlock((unsigned char *)(driver->usb_buf_out), driver->read_len_legacy);
+                else
+                        try_to_lock((unsigned char *)(driver->usb_buf_out), driver->read_len_legacy);
+        }
+
+#endif
+
+#ifdef CONFIG_MACH_ACER_A9
+	/* Acer Fast Charging function */
+	if (driver->read_len_legacy == FAST_CHG_CMD_LEN) {
+		fast_charging_mode = 1;
+		usb_fast_chg(driver->legacy_ch, (unsigned char *)(driver->usb_buf_out), driver->read_len_legacy);
+	}
+#endif
+
 	APPEND_DEBUG('D');
 	diag_process_hdlc(driver->usb_buf_out, driver->read_len_legacy);
 	diag_read_work_fn(work);

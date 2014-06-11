@@ -89,6 +89,11 @@ enum pm8921_chg_led_src_config {
  * @get_batt_capacity_percent:
  *			a board specific function to return battery
  *			capacity. If null - a default one will be used
+ * @dc_unplug_check:	enables the reverse boosting fix for the DC_IN line
+ *			however, this should only be enabled for devices which
+ *			control the DC OVP FETs otherwise this option should
+ *			remain disabled
+ * @has_dc_supply:	report DC online if this bit is set in board file
  * @trkl_voltage:	the trkl voltage in (mV) below which hw controlled
  *			 trkl charging happens with linear charger
  * @weak_voltage:	the weak voltage (mV) below which hw controlled
@@ -137,6 +142,8 @@ struct pm8921_charger_platform_data {
 	int64_t				batt_id_min;
 	int64_t				batt_id_max;
 	bool				keep_btm_on_suspend;
+	bool				dc_unplug_check;
+	bool				has_dc_supply;
 	int				trkl_voltage;
 	int				weak_voltage;
 	int				trkl_current;
@@ -156,7 +163,7 @@ enum pm8921_charger_source {
 	PM8921_CHG_SRC_DC,
 };
 
-#if defined(CONFIG_PM8921_CHARGER) || defined(CONFIG_PM8921_CHARGER_MODULE)
+#if defined(CONFIG_PM8921_CHARGER) || defined(CONFIG_PM8921_CHARGER_MODULE) || defined(CONFIG_ACER_PM8921_CHARGER)
 void pm8921_charger_vbus_draw(unsigned int mA);
 int pm8921_charger_register_vbus_sn(void (*callback)(int));
 void pm8921_charger_unregister_vbus_sn(void (*callback)(int));
@@ -276,6 +283,13 @@ int pm8921_usb_ovp_set_hystersis(enum pm8921_usb_debounce_time ms);
  *
  */
 int pm8921_usb_ovp_disable(int disable);
+/**
+ * pm8921_is_batfet_closed - battery fet status
+ *
+ * Returns 1 if batfet is closed 0 if open. On configurations without
+ * batfet this will return 0.
+ */
+int pm8921_is_batfet_closed(void);
 #else
 static inline void pm8921_charger_vbus_draw(unsigned int mA)
 {
@@ -347,6 +361,10 @@ static inline int pm8921_usb_ovp_set_hystersis(enum pm8921_usb_debounce_time ms)
 static inline int pm8921_usb_ovp_disable(int disable)
 {
 	return -ENXIO;
+}
+static inline int pm8921_is_batfet_closed(void)
+{
+	return 1;
 }
 #endif
 

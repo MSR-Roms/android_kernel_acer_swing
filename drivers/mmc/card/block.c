@@ -2370,6 +2370,13 @@ static int mmc_blk_probe(struct mmc_card *card)
 		if (mmc_add_disk(part_md))
 			goto out;
 	}
+
+#ifdef CONFIG_MACH_ACER_A9
+	/* Increase read ahead page size to improve sequence read performance */
+	if ((mmc_card_mmc(card)) || mmc_card_sd(card))
+		md->disk->queue->backing_dev_info.ra_pages = 256;
+#endif
+
 	return 0;
 
  out:

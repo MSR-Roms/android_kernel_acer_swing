@@ -1427,7 +1427,7 @@ static struct msm_otg_platform_data msm_otg_pdata;
 static int wr_phy_init_seq[] = {
 	0x44, 0x80, /* set VBUS valid threshold
 			and disconnect valid threshold */
-	0x38, 0x81, /* update DC voltage level */
+	0x68, 0x81, /* update DC voltage level */
 	0x14, 0x82, /* set preemphasis and rise/fall time */
 	0x13, 0x83, /* set source impedance adjusment */
 	-1};
@@ -1435,7 +1435,7 @@ static int wr_phy_init_seq[] = {
 static int liquid_v1_phy_init_seq[] = {
 	0x44, 0x80,/* set VBUS valid threshold
 			and disconnect valid threshold */
-	0x3C, 0x81,/* update DC voltage level */
+	0x6C, 0x81,/* update DC voltage level */
 	0x18, 0x82,/* set preemphasis and rise/fall time */
 	0x23, 0x83,/* set source impedance sdjusment */
 	-1};
@@ -1479,6 +1479,8 @@ static struct msm_bus_scale_pdata usb_bus_scale_pdata = {
 };
 #endif
 
+#define MSM_MPM_PIN_USB1_OTGSESSVLD	40
+
 static struct msm_otg_platform_data msm_otg_pdata = {
 	.mode			= USB_OTG,
 	.otg_control		= OTG_PMIC_CONTROL,
@@ -1487,6 +1489,7 @@ static struct msm_otg_platform_data msm_otg_pdata = {
 	.power_budget		= 750,
 #ifdef CONFIG_MSM_BUS_SCALING
 	.bus_scale_table	= &usb_bus_scale_pdata,
+	.mpm_otgsessvld_int	= MSM_MPM_PIN_USB1_OTGSESSVLD,
 #endif
 };
 #endif
@@ -2634,6 +2637,7 @@ static struct platform_device *cdp_devices[] __initdata = {
 	&android_usb_device,
 	&msm_pcm,
 	&msm_multi_ch_pcm,
+	&msm_lowlatency_pcm,
 	&msm_pcm_routing,
 	&msm_cpudai0,
 	&msm_cpudai1,

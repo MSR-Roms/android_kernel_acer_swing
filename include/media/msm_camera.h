@@ -210,6 +210,14 @@ struct msm_mctl_post_proc_cmd {
 #define MSM_CAMERA_LED_HIGH 2
 #define MSM_CAMERA_LED_INIT 3
 #define MSM_CAMERA_LED_RELEASE 4
+#if defined(CONFIG_MACH_ACER_A9) || defined(ACER_A9)
+#define MSM_CAMERA_LED_TORCH 5
+#endif
+#ifdef CONFIG_MACH_ACER_A11RD
+#define MSM_CAMERA_LED_TORCH_OFF 0
+#define MSM_CAMERA_LED_TORCH_ON 1
+#endif
+
 
 #define MSM_CAMERA_STROBE_FLASH_NONE 0
 #define MSM_CAMERA_STROBE_FLASH_XENON 1
@@ -695,7 +703,9 @@ struct msm_stats_buf {
 	(MSM_V4L2_EXT_CAPTURE_MODE_DEFAULT+7)
 #define MSM_V4L2_EXT_CAPTURE_MODE_RDI2 \
 	(MSM_V4L2_EXT_CAPTURE_MODE_DEFAULT+8)
-#define MSM_V4L2_EXT_CAPTURE_MODE_MAX (MSM_V4L2_EXT_CAPTURE_MODE_DEFAULT+9)
+#define MSM_V4L2_EXT_CAPTURE_MODE_V2X_LIVESHOT \
+	(MSM_V4L2_EXT_CAPTURE_MODE_DEFAULT+9)
+#define MSM_V4L2_EXT_CAPTURE_MODE_MAX (MSM_V4L2_EXT_CAPTURE_MODE_DEFAULT+10)
 
 
 #define MSM_V4L2_PID_MOTION_ISO              V4L2_CID_PRIVATE_BASE
@@ -816,7 +826,10 @@ struct msm_snapshot_pp_status {
 #define CFG_START_STREAM              44
 #define CFG_STOP_STREAM               45
 #define CFG_GET_CSI_PARAMS            46
-#define CFG_MAX			47
+#if defined(CONFIG_MACH_ACER_A9) || defined(ACER_A9)
+#define CFG_GET_LINE_COUNT            47
+#endif
+#define CFG_MAX			48
 
 
 #define MOVE_NEAR	0
@@ -906,6 +919,7 @@ struct msm_snapshot_pp_status {
 
 #define CAMERA_SETAE_AVERAGE		0
 #define CAMERA_SETAE_CENWEIGHT	1
+
 
 #define  CAMERA_WB_AUTO               1 /* This list must match aeecamera.h */
 #define  CAMERA_WB_CUSTOM             2
@@ -1291,6 +1305,9 @@ struct sensor_cfg_data {
 		struct cord aec_cord;
 		int is_autoflash;
 		struct mirror_flip mirror_flip;
+#if defined(CONFIG_MACH_ACER_A9) || defined(ACER_A9)
+		uint32_t line_count;
+#endif
 	} cfg;
 };
 

@@ -1407,30 +1407,41 @@ static void add_supported_video_format(
 	struct hdmi_disp_mode_list_type *disp_mode_list,
 	uint32 video_format)
 {
-	const struct hdmi_disp_mode_timing_type *timing =
-		hdmi_common_get_supported_mode(video_format);
-	boolean supported = timing != NULL;
+	const struct hdmi_disp_mode_timing_type *timing;
+	boolean supported = false;
+	boolean mhl_supported = true;
 
 	if (video_format >= HDMI_VFRMT_MAX)
 		return;
 
+	timing = hdmi_common_get_supported_mode(video_format);
+	supported = timing != NULL;
+#ifdef CONFIG_MACH_ACER_A9
+	pr_info("EDID: format: %d [%s], %s\n",
+#else
 	DEV_DBG("EDID: format: %d [%s], %s\n",
+#endif
 		video_format, video_format_2string(video_format),
 		supported ? "Supported" : "Not-Supported");
-	if (supported) {
-		if (mhl_is_connected()) {
-			const struct hdmi_disp_mode_timing_type *mhl_timing =
-				hdmi_mhl_get_supported_mode(video_format);
-			boolean mhl_supported = mhl_timing != NULL;
-			DEV_DBG("EDID: format: %d [%s], %s by MHL\n",
+
+	if (mhl_is_connected()) {
+		const struct hdmi_disp_mode_timing_type *mhl_timing =
+			hdmi_mhl_get_supported_mode(video_format);
+		mhl_supported = mhl_timing != NULL;
+		DEV_DBG("EDID: format: %d [%s], %s by MHL\n",
 			video_format, video_format_2string(video_format),
-				mhl_supported ? "Supported" : "Not-Supported");
-			if (mhl_supported)
-				disp_mode_list->disp_mode_list[
+			mhl_supported ? "Supported" : "Not-Supported");
+	}
+
+	if (supported && mhl_supported) {
+		disp_mode_list->disp_mode_list[
 			disp_mode_list->num_of_elements++] = video_format;
-		} else
-			disp_mode_list->disp_mode_list[
-			disp_mode_list->num_of_elements++] = video_format;
+		if (video_format == external_common_state->video_resolution) {
+			DEV_DBG("%s: Default resolution %d [%s] supported\n",
+					__func__, video_format,
+					video_format_2string(video_format));
+			external_common_state->default_res_supported = true;
+		}
 	}
 }
 
@@ -1866,6 +1877,7 @@ int hdmi_common_read_edid(void)
 	memset(&external_common_state->disp_mode_list, 0,
 		sizeof(external_common_state->disp_mode_list));
 	memset(edid_buf, 0, sizeof(edid_buf));
+	external_common_state->default_res_supported = false;
 
 	status = hdmi_common_read_edid_block(0, edid_buf);
 	if (status || !check_edid_header(edid_buf)) {
@@ -1971,6 +1983,7 @@ error:
 	external_common_state->disp_mode_list.num_of_elements = 1;
 	external_common_state->disp_mode_list.disp_mode_list[0] =
 		external_common_state->video_resolution;
+	external_common_state->default_res_supported = true;
 	return status;
 }
 EXPORT_SYMBOL(hdmi_common_read_edid);
@@ -2016,6 +2029,12 @@ bool hdmi_common_get_video_format_from_drv_data(struct msm_fb_data_type *mfd)
 			if (mfd->var_yres == 540) {/* interlaced */
 				format = HDMI_VFRMT_1920x1080i60_16_9;
 			} else if (mfd->var_yres == 1080) {
+#ifdef CONFIG_ACER_HDMI_MHL_SII8334
+				if (mfd->var_frame_rate == 30000)
+					format = HDMI_VFRMT_1920x1080p30_16_9;
+				else
+					format = HDMI_VFRMT_1920x1080p24_16_9;
+#else
 				if (mfd->var_frame_rate == 50000)
 					format = HDMI_VFRMT_1920x1080p50_16_9;
 				else if (mfd->var_frame_rate == 24000)
@@ -2026,6 +2045,7 @@ bool hdmi_common_get_video_format_from_drv_data(struct msm_fb_data_type *mfd)
 					format = HDMI_VFRMT_1920x1080p30_16_9;
 				else
 					format = HDMI_VFRMT_1920x1080p60_16_9;
+#endif
 			}
 			break;
 		}
@@ -2033,7 +2053,7 @@ bool hdmi_common_get_video_format_from_drv_data(struct msm_fb_data_type *mfd)
 
 	changed = external_common_state->video_resolution != format;
 	if (external_common_state->video_resolution != format)
-		DEV_DBG("switching %s => %s", video_format_2string(
+		pr_info("switching %s => %s", video_format_2string(
 			external_common_state->video_resolution),
 			video_format_2string(format));
 	else
