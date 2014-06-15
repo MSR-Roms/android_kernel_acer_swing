@@ -359,21 +359,14 @@ static void mdp4_lcdc_wait4ov(int cndx)
 	wait_for_completion(&vctrl->ov_comp);
 }
 
-<<<<<<< HEAD
 ssize_t mdp4_lcdc_show_event(struct device *dev,
-=======
-static ssize_t vsync_show_event(struct device *dev,
->>>>>>> a664353... msm_fb: display: Send vsync events using sysfs for MDP4 targets
 		struct device_attribute *attr, char *buf)
 {
 	int cndx;
 	struct vsycn_ctrl *vctrl;
 	ssize_t ret = 0;
 	unsigned long flags;
-<<<<<<< HEAD
 	u64 vsync_tick;
-=======
->>>>>>> a664353... msm_fb: display: Send vsync events using sysfs for MDP4 targets
 
 	cndx = 0;
 	vctrl = &vsync_ctrl_db[0];
@@ -387,7 +380,6 @@ static ssize_t vsync_show_event(struct device *dev,
 		INIT_COMPLETION(vctrl->vsync_comp);
 	vctrl->wait_vsync_cnt++;
 	spin_unlock_irqrestore(&vctrl->spin_lock, flags);
-<<<<<<< HEAD
 	ret = wait_for_completion_interruptible_timeout(&vctrl->vsync_comp,
 		msecs_to_jiffies(VSYNC_PERIOD * 4));
 	if (ret <= 0) {
@@ -403,12 +395,6 @@ static ssize_t vsync_show_event(struct device *dev,
 	spin_unlock_irqrestore(&vctrl->spin_lock, flags);
 
 	ret = snprintf(buf, PAGE_SIZE, "VSYNC=%llu", vsync_tick);
-=======
-	wait_for_completion(&vctrl->vsync_comp);
-
-	ret = snprintf(buf, PAGE_SIZE, "VSYNC=%llu",
-			ktime_to_ns(vctrl->vsync_time));
->>>>>>> a664353... msm_fb: display: Send vsync events using sysfs for MDP4 targets
 	buf[strlen(buf) + 1] = '\0';
 	return ret;
 }
@@ -434,11 +420,7 @@ void mdp4_lcdc_vsync_init(int cndx)
 	init_completion(&vctrl->vsync_comp);
 	init_completion(&vctrl->dmap_comp);
 	init_completion(&vctrl->ov_comp);
-<<<<<<< HEAD
 	atomic_set(&vctrl->suspend, 1);
-=======
-	atomic_set(&vctrl->suspend, 0);
->>>>>>> a664353... msm_fb: display: Send vsync events using sysfs for MDP4 targets
 	atomic_set(&vctrl->vsync_resume, 1);
 	spin_lock_init(&vctrl->spin_lock);
 }
@@ -455,15 +437,6 @@ void mdp4_lcdc_base_swap(int cndx, struct mdp4_overlay_pipe *pipe)
 	vctrl = &vsync_ctrl_db[cndx];
 	vctrl->base_pipe = pipe;
 }
-
-static DEVICE_ATTR(vsync_event, S_IRUGO, vsync_show_event, NULL);
-static struct attribute *vsync_fs_attrs[] = {
-	&dev_attr_vsync_event.attr,
-	NULL,
-};
-static struct attribute_group vsync_fs_attr_group = {
-	.attrs = vsync_fs_attrs,
-};
 
 int mdp4_lcdc_on(struct platform_device *pdev)
 {
@@ -679,23 +652,6 @@ int mdp4_lcdc_on(struct platform_device *pdev)
 
 	mdp_histogram_ctrl_all(TRUE);
 
-<<<<<<< HEAD
-=======
-	if (!vctrl->sysfs_created) {
-		ret = sysfs_create_group(&vctrl->dev->kobj,
-			&vsync_fs_attr_group);
-		if (ret) {
-			pr_err("%s: sysfs group creation failed, ret=%d\n",
-				__func__, ret);
-			return ret;
-		}
-
-		kobject_uevent(&vctrl->dev->kobj, KOBJ_ADD);
-		pr_debug("%s: kobject_uevent(KOBJ_ADD)\n", __func__);
-		vctrl->sysfs_created = 1;
-	}
-
->>>>>>> a664353... msm_fb: display: Send vsync events using sysfs for MDP4 targets
 	return ret;
 }
 
@@ -837,10 +793,6 @@ void mdp4_primary_vsync_lcdc(void)
 	cndx = 0;
 	vctrl = &vsync_ctrl_db[cndx];
 	pr_debug("%s: cpu=%d\n", __func__, smp_processor_id());
-<<<<<<< HEAD
-=======
-	vctrl->vsync_time = ktime_get();
->>>>>>> a664353... msm_fb: display: Send vsync events using sysfs for MDP4 targets
 
 	spin_lock(&vctrl->spin_lock);
 	vctrl->vsync_time = ktime_get();

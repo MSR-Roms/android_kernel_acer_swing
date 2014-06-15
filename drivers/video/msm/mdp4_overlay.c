@@ -1600,7 +1600,6 @@ void mdp4_mixer_stage_commit(int mixer)
 		data |= stage;
 	}
 
-<<<<<<< HEAD
 	/*
 	 * stage_commit may be called from overlay_unset
 	 * for command panel, mdp clocks may be off at this time.
@@ -1609,10 +1608,6 @@ void mdp4_mixer_stage_commit(int mixer)
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 	mdp_clk_ctrl(1);
 
-=======
-	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
-	mdp_clk_ctrl(1);
->>>>>>> a664353... msm_fb: display: Send vsync events using sysfs for MDP4 targets
 	mdp4_mixer_blend_setup(mixer);
 
 	off = 0;

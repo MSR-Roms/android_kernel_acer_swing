@@ -3389,14 +3389,11 @@ static int msm_fb_ioctl(struct fb_info *info, unsigned int cmd,
 		break;
 	case MSMFB_OVERLAY_UNSET:
 		ret = msmfb_overlay_unset(info, argp);
-<<<<<<< HEAD
 		break;
 	case MSMFB_OVERLAY_COMMIT:
 		down(&msm_fb_ioctl_ppp_sem);
 		ret = msmfb_overlay_commit(info, argp);
 		up(&msm_fb_ioctl_ppp_sem);
-=======
->>>>>>> a664353... msm_fb: display: Send vsync events using sysfs for MDP4 targets
 		break;
 	case MSMFB_OVERLAY_PLAY:
 		ret = msmfb_overlay_play(info, argp);
