@@ -3319,7 +3319,7 @@ static int msmfb_notify_update(struct fb_info *info, unsigned long *argp)
 		&mfd->msmfb_no_update_notify, 4*HZ);
 	}
 	if (ret == 0)
-		ret = -ETIMEDOUT;
+ 		ret = -ETIMEDOUT;
 	return (ret > 0) ? 0 : ret;
 }
 
