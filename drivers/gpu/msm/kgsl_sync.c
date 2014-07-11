@@ -38,13 +38,13 @@ void kgsl_sync_pt_destroy(struct sync_pt *pt)
 	sync_pt_free(pt);
 }
 
-static struct sync_pt *kgsl_sync_pt_dup(struct sync_pt *pt)
+struct sync_pt *kgsl_sync_pt_dup(struct sync_pt *pt)
 {
 	struct kgsl_sync_pt *kpt = (struct kgsl_sync_pt *) pt;
 	return kgsl_sync_pt_create(pt->parent, kpt->timestamp);
 }
 
-static int kgsl_sync_pt_has_signaled(struct sync_pt *pt)
+int kgsl_sync_pt_has_signaled(struct sync_pt *pt)
 {
 	struct kgsl_sync_pt *kpt = (struct kgsl_sync_pt *) pt;
 	struct kgsl_sync_timeline *ktimeline =
@@ -56,15 +56,6 @@ static int kgsl_sync_pt_has_signaled(struct sync_pt *pt)
 		return 1;
 	}
 	return 0;
-}
-
-static int kgsl_sync_pt_compare(struct sync_pt *a, struct sync_pt *b)
-{
-	struct kgsl_sync_pt *kpt_a = (struct kgsl_sync_pt *) a;
-	struct kgsl_sync_pt *kpt_b = (struct kgsl_sync_pt *) b;
-	unsigned int ts_a = kpt_a->timestamp;
-	unsigned int ts_b = kpt_b->timestamp;
-	return timestamp_cmp(ts_a, ts_b);
 }
 
 struct kgsl_fence_event_priv {
@@ -179,10 +170,8 @@ fail_pt:
 }
 
 static const struct sync_timeline_ops kgsl_sync_timeline_ops = {
-	.driver_name = "kgsl-timeline",
 	.dup = kgsl_sync_pt_dup,
 	.has_signaled = kgsl_sync_pt_has_signaled,
-	.compare = kgsl_sync_pt_compare,
 };
 
 int kgsl_sync_timeline_create(struct kgsl_context *context)

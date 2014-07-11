@@ -368,12 +368,6 @@ kgsl_create_context(struct kgsl_device_private *dev_priv)
 	context->id = id;
 	context->dev_priv = dev_priv;
 
-	if (kgsl_sync_timeline_create(context)) {
-		idr_remove(&dev_priv->device->context_idr, id);
-		kfree(context);
-		return NULL;
-	}
-
 	return context;
 }
 
@@ -418,7 +412,6 @@ kgsl_context_destroy(struct kref *kref)
 {
 	struct kgsl_context *context = container_of(kref, struct kgsl_context,
 						    refcount);
-	kgsl_sync_timeline_destroy(context);
 	kfree(context);
 }
 
@@ -2028,11 +2021,6 @@ static long kgsl_ioctl_timestamp_event(struct kgsl_device_private *dev_priv,
 	switch (param->type) {
 	case KGSL_TIMESTAMP_EVENT_GENLOCK:
 		ret = kgsl_add_genlock_event(dev_priv->device,
-			param->context_id, param->timestamp, param->priv,
-			param->len, dev_priv);
-		break;
-	case KGSL_TIMESTAMP_EVENT_FENCE:
-		ret = kgsl_add_fence_event(dev_priv->device,
 			param->context_id, param->timestamp, param->priv,
 			param->len, dev_priv);
 		break;
