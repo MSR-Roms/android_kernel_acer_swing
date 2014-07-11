@@ -713,8 +713,14 @@ void mdp4_overlay_rgb_setup(struct mdp4_overlay_pipe *pipe)
 		op_mode &= ~(MDP4_OP_FLIP_LR + MDP4_OP_SCALEX_EN);
 		op_mode &= ~(MDP4_OP_FLIP_UD + MDP4_OP_SCALEY_EN);
 		outpdw(rgb_base + 0x0058, op_mode);/* MDP_RGB_OP_MODE */
-	} else
+	} else {
+		if (pipe->op_mode & MDP4_OP_FLIP_LR && mdp_rev >= MDP_REV_42) {
+			/* Enable x-scaling bit to enable LR flip */
+			/* for MDP > 4.2 targets */
+			pipe->op_mode |= 0x01;
+		}
 		outpdw(rgb_base + 0x0058, pipe->op_mode);/* MDP_RGB_OP_MODE */
+	}
 	outpdw(rgb_base + 0x005c, pipe->phasex_step);
 	outpdw(rgb_base + 0x0060, pipe->phasey_step);
 
@@ -2191,6 +2197,8 @@ void mdp4_overlay_pipe_free(struct mdp4_overlay_pipe *pipe)
 
 }
 
+static int mdp4_calc_pipe_mdp_clk(struct msm_fb_data_type *mfd, struct mdp4_overlay_pipe *pipe);
+
 static int mdp4_overlay_req2pipe(struct mdp_overlay *req, int mixer,
 			struct mdp4_overlay_pipe **ppipe,
 			struct msm_fb_data_type *mfd)
@@ -2434,6 +2442,22 @@ static int mdp4_overlay_req2pipe(struct mdp_overlay *req, int mixer,
 
 	pipe->flags = req->flags;
 
+#ifdef CONFIG_ARCH_MSM8X60
+	/* If we're composing with MDP and we suddenly need a really outrageous clockrate,
+	 * just fail so that userspace switches to the GPU. If we don't do this, MDP will
+	 * switch to BLT mode, but it locks up and we never get any interrupts. Only seems to
+	 * happen on 8660 devices, so ifdeffed this appropriately. */
+	if (pipe->flags & MDP_BACKEND_COMPOSITION && req->id == MSMFB_NEW_REQUEST) {
+		mdp4_calc_pipe_mdp_clk(mfd, pipe);
+		if (pipe->req_clk > mdp_max_clk) {
+			pr_err("%s: high clock rate requested while composing, switch to GPU! req=%d max=%d",
+							__func__, pipe->req_clk, mdp_max_clk);
+			mdp4_overlay_pipe_free(pipe);
+			return -EINVAL;
+		}
+	}
+#endif
+
 	*ppipe = pipe;
 
 	return 0;
@@ -2599,11 +2623,11 @@ static int mdp4_calc_pipe_mdp_clk(struct msm_fb_data_type *mfd,
 	/*
 	 * If the calculated mdp clk is less than panel pixel clk,
 	 * most likely due to upscaling, mdp clk rate will be set to
-	 * greater than pclk. Now the driver uses 1.15 as the
+	 * greater than pclk. Now the driver uses 2 as the
 	 * factor. Ideally this factor is passed from board file.
 	 */
 	if (rst < pclk) {
-		rst = ((pclk >> shift) * 23 / 20) << shift;
+		rst = ((pclk >> shift) * 2) << shift;
 		pr_debug("%s calculated mdp clk is less than pclk.\n",
 			__func__);
 	}
@@ -2826,16 +2850,6 @@ void mdp4_overlay_mdp_perf_upd(struct msm_fb_data_type *mfd,
 				perf_req->use_ov0_blt);
 			perf_cur->use_ov0_blt = perf_req->use_ov0_blt;
 		}
-		if (mfd->panel_info.pdest == DISPLAY_2 &&
-		    perf_req->use_ov1_blt && !perf_cur->use_ov1_blt) {
-			mdp4_dtv_overlay_blt_start(mfd);
-			pr_info("%s mixer1 start blt [%d] from %d to %d.\n",
-				__func__,
-				flag,
-				perf_cur->use_ov1_blt,
-				perf_req->use_ov1_blt);
-			perf_cur->use_ov1_blt = perf_req->use_ov1_blt;
-		}
 	} else {
 		if (perf_req->mdp_clk_rate < perf_cur->mdp_clk_rate) {
 			pr_info("%s mdp clk is changed [%d] from %d to %d\n",
@@ -2873,16 +2887,6 @@ void mdp4_overlay_mdp_perf_upd(struct msm_fb_data_type *mfd,
 				perf_cur->use_ov0_blt,
 				perf_req->use_ov0_blt);
 			perf_cur->use_ov0_blt = perf_req->use_ov0_blt;
-		}
-		if (mfd->panel_info.pdest == DISPLAY_2 &&
-		    !perf_req->use_ov1_blt && perf_cur->use_ov1_blt) {
-			mdp4_dtv_overlay_blt_stop(mfd);
-			pr_info("%s mixer1 stop blt [%d] from %d to %d.\n",
-				__func__,
-				flag,
-				perf_cur->use_ov1_blt,
-				perf_req->use_ov1_blt);
-			perf_cur->use_ov1_blt = perf_req->use_ov1_blt;
 		}
 	}
 	return;
